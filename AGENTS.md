@@ -49,6 +49,9 @@ se génère avec `scripts/status_view.py`, dans local/evidence/STATUS.md ; DELIV
 reste une preuve historique. Ne pas rejouer un script de migration pour vérifier le statut.
 Après une modification du journal, si local/backup-config.json existe, produire une copie
 vérifiée avec `scripts/backup_local.py --configured`. Ne pas affirmer la synchronisation cloud.
+La copie exclut local/backups et applique ensuite docs/RETENTION.md ; aucun nettoyage
+manuel. Préserver les preuves métier et les événements non résolus. Pour un nouveau
+scan ou un redémarrage, utiliser `next_scan_id` de `scan-scope`, jamais un ID inventé.
 
 `local/STOP` interdit l'envoi suivant. Les gates nécessitent des preuves réelles,
 jamais des attestations inventées. Ne pas utiliser `gate` pour contourner un blocage.

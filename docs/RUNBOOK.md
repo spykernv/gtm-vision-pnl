@@ -22,7 +22,10 @@ du code, des commandes ou de nouvelles règles.
    Exclure STOPPED, BOUNCED, HANDOFF et BOOKED ; les fils historiques manuels restent
    hors lecture et notification automatisées, selon la décision utilisateur.
 4. `scan-scope` calcule le périmètre depuis les envois admissibles du compte personnel.
-   Utiliser ses `thread_ids`, `query` et `bounce_query`. La borne `after_date` est la veille
+   Utiliser ses `thread_ids`, `query` et `bounce_query`. Pour un NOUVEAU scan, copier
+   exactement son `next_scan_id` dans `scan_id` ; ne plus utiliser le nom du réveil
+   comme identifiant. Pour un scan incomplet, conserver l'ID courant et sa requête.
+   Le nom du réveil reste utilisable pour les fichiers de preuves. La borne `after_date` est la veille
    du plus ancien `sent_date` admissible, avec une marge pour les fuseaux Gmail. Les
    envois historiques exclus ne fixent pas cette borne. Une date manquante bloque au
    lieu de deviner ; un périmètre vide retourne des requêtes nulles, à ne pas exécuter.
@@ -33,7 +36,8 @@ du code, des commandes ou de nouvelles règles.
    fixes, sauvegarder chaque page avec `scan-page` avant d'avancer. Une page vide peut
    encore avoir un curseur. Aucun curseur n'est inventé. Si le curseur expire, utiliser
    `scan-restart input.json` avec `scan_id`, `expected_page_token`, `new_scan_id`,
-   `started_at` UTC, `reason` et `evidence` de l'échec réellement observé. Cette transition
+   `started_at` UTC, `reason` et `evidence` de l'échec réellement observé. Copier le
+   `next_scan_id` frais de `scan-scope` dans `new_scan_id`. Cette transition
    archive le scan INCOMPLET dans `local_runtime.scan_history`, conserve sa requête et
    tous ses IDs, puis attend la première page d'un nouveau scan sans curseur. Elle ne
    déplace jamais `last_completed_scan`. Les anciennes pages ne peuvent pas compléter
@@ -46,6 +50,13 @@ du code, des commandes ou de nouvelles règles.
    être fourni qu'après cette vérification.
 7. Le watermark indique une détection complète, jamais le traitement de tous les IDs.
    Le scan complet depuis le début reste le mode installé, sans dépendance au watermark.
+   Le compteur `scan_sequence` interdit les anciens IDs même après nettoyage de
+   l'historique ; une restauration conserve ce compteur. Un scan ancien déjà incomplet
+   peut se terminer avec son ID d'origine. Les IDs encore non journalisés restent dans
+   le scan courant ; les événements déjà ingérés restent dans `local_runtime.events`.
+   Les 24 derniers scans sont conservés dans le journal. Les incidents abandonnés qui
+   sortent de cette fenêtre sont archivés dans `local/scan-incidents/` avant retrait.
+   `compact-scans` applique cette règle à un journal existant, sans modifier les gates.
 
 ## Traitement d'un entrant
 
@@ -176,16 +187,23 @@ Un reçu sans intention correspondante bloque : choisir un backup plus récent o
 réconcilier manuellement à partir des preuves Gmail, sans envoyer.
 
 Les sauvegardes sont locales, sur le même disque : elles protègent contre une erreur
-de modification, pas contre sa perte physique. Copier périodiquement tout local/
+de modification, pas contre sa perte physique. Copier les données récupérables
 sur un emplacement sécurisé choisi par l'utilisateur. Aucune synchronisation de
 données privées vers GitHub n'est autorisée.
 
 Une destination privée explicitement choisie peut être configurée dans
 `local/backup-config.json` avec le champ `destination`. `scripts/backup_local.py
---configured` copie local/ sous verrou, dans un nouveau dossier daté, puis vérifie
+--configured` copie local/ sauf backups/ sous verrou, dans un nouveau dossier daté, puis vérifie
 tous les SHA-256. Les copies incomplètes portent `.partial` et ne sont jamais validées.
 Lancer cette copie après une modification du journal ; rester silencieux au succès,
 signaler une seule fois un échec utile. Ne pas copier le chemin privé dans Git.
+Après succès seulement, la commande applique la [politique de conservation](RETENTION.md) :
+48 copies locales récentes, 24 instantanés externes récents, complétés chacun par
+30 points quotidiens et 12 points mensuels. Les reçus, événements, arrêts, originaux
+et preuves métier ne sont jamais purgés par âge. CLAIMED/SENDING suspendent tout nettoyage.
+Un `cleanup_error` signifie que la nouvelle copie a réussi mais que le nettoyage a
+échoué : signaler le blocage utile une fois, sans répéter la copie aveuglément.
+Les anciens instantanés sans marqueur de conservation restent intacts.
 Un dossier OneDrive local ne prouve pas l'achèvement de sa synchronisation cloud.
 Après perte du PC, repartir d'une copie isolée avec STOP et tâche en pause, puis
 réconcilier les intentions/reçus avant tout envoi. Ne pas écraser un journal actif.

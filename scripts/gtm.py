@@ -21,6 +21,10 @@ TERMINAL = {'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}
 REPLY_KINDS = {'simple_question', 'interest', 'meeting_request'}
 KINDS = REPLY_KINDS | {'refusal', 'permanent_bounce', 'automatic', 'not_now', 'handoff'}
 FINGERPRINT_VERSION = 2
+SCAN_HISTORY_LIMIT = 24
+
+def next_scan_id(runtime):
+    return 'scan-v2-' + str(runtime.get('scan_sequence', 0) + 1)
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -371,7 +375,8 @@ class Store:
         eligible = [s for s in state['sent'] if s.get('actual_from') == state['preferred_sender']
                     and s.get('conversation_state') not in TERMINAL]
         result = {'account': state['preferred_sender'], 'thread_ids': [s['result']['thread_id'] for s in eligible],
-                  'query': None, 'bounce_query': None, 'after_date': None}
+                  'query': None, 'bounce_query': None, 'after_date': None,
+                  'next_scan_id': next_scan_id(state['local_runtime'])}
         if not eligible:
             return result
         try:
@@ -398,7 +403,7 @@ class Store:
                 raise Blocked('Restart reason and actual failure evidence required')
             history = rt.setdefault('scan_history', [])
             used = {s['id'] for s in history} | {scan['id']}
-            if not item.get('new_scan_id') or item['new_scan_id'] in used:
+            if item.get('new_scan_id') != next_scan_id(rt) or item['new_scan_id'] in used:
                 raise Blocked('Restart requires a new unused scan id')
             if datetime.fromisoformat(item['started_at']).tzinfo is None:
                 raise Blocked('Restart start time requires timezone')
@@ -406,10 +411,39 @@ class Store:
             abandoned.update(abandoned_at=now(), abandon_reason=item['reason'],
                              abandon_evidence=deepcopy(item['evidence']), restarted_as=item['new_scan_id'])
             history.append(abandoned)
+            rt['scan_sequence'] = rt.get('scan_sequence', 0) + 1
             rt['scan'] = {'id':item['new_scan_id'], 'query':scan['query'], 'started_at':item['started_at'],
                           'next_page_token':None, 'message_ids':deepcopy(scan['message_ids']),
                           'pages':[], 'complete':False, 'restarted_from':scan['id']}
+            self.compact_scan_history(state)
             return deepcopy(rt['scan'])
+
+    def compact_scan_history(self, state):
+        rt = state['local_runtime']
+        history = rt.get('scan_history', [])
+        handled = {s['result']['id'] for s in state['sent']}
+        handled.update(e['inbound_id'] for e in rt['events'].values())
+        pending = set()
+        # Only incident details need permanent archival. Normal scans are transient.
+        for old in history[:-SCAN_HISTORY_LIMIT]:
+            pending.update(set(old.get('message_ids', [])) - handled)
+            if old.get('abandoned_at'):
+                path = self.local / 'scan-incidents' / (digest(old) + '.json')
+                if path.exists():
+                    if read(path) != old:
+                        raise Blocked('Scan incident archive conflict')
+                else:
+                    atomic(path, old)
+        if pending:
+            if not rt.get('scan'):
+                raise Blocked('Cannot compact unprocessed IDs without a current scan')
+            rt['scan']['message_ids'] = sorted(set(rt['scan']['message_ids']) | pending)
+        rt['scan_history'] = history[-SCAN_HISTORY_LIMIT:]
+
+    def compact_scans(self):
+        with self.transaction() as state:
+            self.compact_scan_history(state)
+        return self.status()
 
     def scan_page(self, item):
         with self.transaction() as state:
@@ -419,12 +453,20 @@ class Store:
                 if item.get('page_token'):
                     raise Blocked('First page requires null cursor')
                 history = rt.setdefault('scan_history', [])
+                if item['scan_id'] != next_scan_id(rt):
+                    raise Blocked('Use next_scan_id from scan-scope; old scan ids cannot be reused')
                 if item['scan_id'] in {s['id'] for s in history} or (scan and item['scan_id'] == scan['id']):
                     raise Blocked('Completed or abandoned scan id cannot be reused')
                 if scan:
                     history.append(deepcopy(scan))
-                scan = {'id': item['scan_id'], 'query': item['query'], 'started_at': item['started_at'], 'next_page_token': None, 'message_ids': [], 'pages': []}
+                # Carry IDs not yet journaled as handled, even after old scans expire.
+                handled = {s['result']['id'] for s in state['sent']}
+                handled.update(e['inbound_id'] for e in rt['events'].values())
+                pending = sorted(set((scan or {}).get('message_ids', [])) - handled)
+                rt['scan_sequence'] = rt.get('scan_sequence', 0) + 1
+                scan = {'id': item['scan_id'], 'query': item['query'], 'started_at': item['started_at'], 'next_page_token': None, 'message_ids': pending, 'pages': []}
                 rt['scan'] = scan
+                self.compact_scan_history(state)
             if item['scan_id'] != scan['id'] or item['query'] != scan['query'] or item['started_at'] != scan['started_at'] or item.get('page_token') != scan['next_page_token']:
                 raise Blocked('Scan cursor or query mismatch')
             token = item.get('next_page_token')
@@ -552,7 +594,7 @@ class Store:
                     raise Blocked('Backup missing receipt intent; restore a newer backup')
                 self.validate_receipt(restored, old_events[item['key']], item)
             restored['local_runtime']['notifications'] = deepcopy(current['local_runtime']['notifications'])
-            for field in ('scan', 'scan_history', 'last_completed_scan'):
+            for field in ('scan', 'scan_history', 'scan_sequence', 'last_completed_scan'):
                 if field in current['local_runtime']:
                     restored['local_runtime'][field] = deepcopy(current['local_runtime'][field])
             restored['local_runtime']['mode'] = 'monitor'
@@ -592,7 +634,7 @@ def main():
     p = sub.add_parser('init')
     for name in ('journal', 'workbook', 'workflow'):
         p.add_argument('--' + name, required=True)
-    for name in ('status','recover','stop','monitor','live','sync','scan-scope'):
+    for name in ('status','recover','stop','monitor','live','sync','scan-scope','compact-scans'):
         sub.add_parser(name)
     for name in ('ingest','reclassify','prepare','arm','receipt','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
@@ -606,7 +648,7 @@ def main():
             result = initialize(args.root,args.journal,args.workbook,args.workflow)
         elif args.cmd in {'stop','monitor','live'}:
             result = store.mode(args.cmd)
-        elif args.cmd in {'status','recover','sync','scan-scope'}:
+        elif args.cmd in {'status','recover','sync','scan-scope','compact-scans'}:
             result = getattr(store,args.cmd.replace('-','_'))()
         elif args.cmd == 'notify-ack':
             result = store.notify_ack(args.key)

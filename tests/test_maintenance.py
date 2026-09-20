@@ -20,11 +20,11 @@ class MaintenanceTests(unittest.TestCase):
     def test_backup_verifies_all_files_and_preserves_source(self):
         self.store.sync()
         with tempfile.TemporaryDirectory() as destination:
-            before = inventory(self.store.local)
+            before = inventory(self.store.local, exclude_backups=True)
             result = backup(self.store.root, destination)
             copied = Path(result['backup'])
             self.assertEqual(inventory(copied / 'local'), before)
-            self.assertEqual(inventory(self.store.local), before)
+            self.assertEqual(inventory(self.store.local, exclude_backups=True), before)
             self.assertEqual(read(copied / 'manifest.json')['sha256'], before)
             self.assertFalse(result['cloud_sync_verified'])
             second = backup(self.store.root, destination)

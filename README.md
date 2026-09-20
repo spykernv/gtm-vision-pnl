@@ -101,3 +101,6 @@ python -B -X utf8 scripts/check_staged.py
 Le hook refuse fichiers privés, contacts et secrets détectables. Il ne remplace pas
 la revue des fichiers préparés. Les copies privées restent hors Git ; une destination
 de sauvegarde choisie par l'utilisateur est prise en charge par scripts/backup_local.py.
+Les copies excluent les sauvegardes intermédiaires. La conservation des scans et des
+copies est décrite dans [RETENTION.md](docs/RETENTION.md) ; les preuves métier restent
+préservées. Tout nouveau scan utilise `next_scan_id` fourni par `scan-scope`.

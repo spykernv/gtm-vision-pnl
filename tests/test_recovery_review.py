@@ -12,7 +12,7 @@ class RecoveryReviewTests(unittest.TestCase):
     claimed = fixtures.RuntimeTests.claimed
 
     def page(self):
-        return dict(scan_id='s1', query='synthetic', started_at=now(), page_token=None,
+        return dict(scan_id='scan-v2-1', query='synthetic', started_at=now(), page_token=None,
                     next_page_token='expired', message_ids=['in1'])
 
     def booking(self, uri='booking1'):
@@ -21,7 +21,7 @@ class RecoveryReviewTests(unittest.TestCase):
                                start_time='2026-10-01T10:00:00Z', event_memberships=[{'user':'host1'}]),
                     invitee=dict(status='active', event=uri, email=CONTACT, timezone='Europe/Paris'))
 
-    def restart(self, page, new_id='s2'):
+    def restart(self, page, new_id='scan-v2-2'):
         return dict(scan_id=page['scan_id'], expected_page_token=page['next_page_token'],
                     new_scan_id=new_id, started_at=now(), reason='cursor_expired',
                     evidence='Synthetic Gmail invalid page token response')
@@ -37,7 +37,7 @@ class RecoveryReviewTests(unittest.TestCase):
         self.assertFalse(rt['scan_history'][0]['complete'])
         self.assertEqual(rt['scan_history'][0]['abandon_reason'], 'cursor_expired')
         restarted=Store(self.store.root)
-        first=dict(page,scan_id='s2',started_at=restart['started_at'],next_page_token='next',message_ids=['in2'])
+        first=dict(page,scan_id='scan-v2-2',started_at=restart['started_at'],next_page_token='next',message_ids=['in2'])
         restarted.scan_page(first)
         self.assertIsNone(restarted.status()['last_completed_scan'])
         result=restarted.scan_page(dict(first,page_token='next',next_page_token=None,message_ids=[]))
@@ -48,14 +48,14 @@ class RecoveryReviewTests(unittest.TestCase):
     def test_restart_rejects_stale_cursor_missing_evidence_and_reused_ids(self):
         page=self.page();self.store.scan_page(page)
         valid=self.restart(page)
-        for edit in ({'expected_page_token':'stale'},{'evidence':''},{'new_scan_id':'s1'}):
+        for edit in ({'expected_page_token':'stale'},{'evidence':''},{'new_scan_id':'scan-v2-1'}):
             before=self.store.path.read_bytes()
             with self.assertRaises(Blocked): self.store.scan_restart(dict(valid,**edit))
             self.assertEqual(before,self.store.path.read_bytes())
         self.store.scan_restart(valid)
         with self.assertRaises(Blocked): self.store.scan_restart(valid)
         with self.assertRaises(Blocked):
-            self.store.scan_restart(dict(valid,scan_id='s2',expected_page_token=None,new_scan_id='s1'))
+            self.store.scan_restart(dict(valid,scan_id='scan-v2-2',expected_page_token=None,new_scan_id='scan-v2-1'))
 
     def test_restart_save_failure_keeps_original_scan(self):
         page=self.page();self.store.scan_page(page)
@@ -71,7 +71,7 @@ class RecoveryReviewTests(unittest.TestCase):
         with self.assertRaises(Blocked):
             self.store.scan_page(dict(page,page_token='expired',next_page_token=None))
         with self.assertRaises(Blocked):
-            self.store.scan_page(dict(page,scan_id='s2',started_at='2000-01-01T00:00:00Z',next_page_token=None))
+            self.store.scan_page(dict(page,scan_id='scan-v2-2',started_at='2000-01-01T00:00:00Z',next_page_token=None))
         self.assertEqual(before,self.store.path.read_bytes())
 
     def test_second_booking_without_cancellation_cannot_overwrite_first(self):

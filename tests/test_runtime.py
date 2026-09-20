@@ -143,7 +143,7 @@ class RuntimeTests(unittest.TestCase):
             self.store.arm(claim)
 
     def test_pagination_restart_and_no_early_watermark(self):
-        page = {'scan_id':'scan1','query':'fixed query','started_at':now(),'page_token':None,'next_page_token':'p2','message_ids':['in1']}
+        page = {'scan_id':'scan-v2-1','query':'fixed query','started_at':now(),'page_token':None,'next_page_token':'p2','message_ids':['in1']}
         self.store.scan_page(page)
         self.assertIsNone(self.store.status()['last_completed_scan'])
         restarted = Store(self.tmp.name)
