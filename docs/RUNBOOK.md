@@ -21,15 +21,25 @@ du code, des commandes ou de nouvelles règles.
    compte courant. Une erreur 404 ne signifie pas « aucun message ».
    Exclure STOPPED, BOUNCED, HANDOFF et BOOKED ; les fils historiques manuels restent
    hors lecture et notification automatisées, selon la décision utilisateur.
-4. Recherche complémentaire depuis le début de campagne : sujet de campagne OU
-   expéditeurs connus, `in:anywhere` (y compris spam/corbeille). Chercher aussi rebonds
-   de mailer-daemon/postmaster depuis le début, puis vérifier le destinataire original
-   et les IDs avant rattachement. Ne jamais qualifier un rebond hors campagne.
+4. `scan-scope` calcule le périmètre depuis les envois admissibles du compte personnel.
+   Utiliser ses `thread_ids`, `query` et `bounce_query`. La borne `after_date` est la veille
+   du plus ancien `sent_date` admissible, avec une marge pour les fuseaux Gmail. Les
+   envois historiques exclus ne fixent pas cette borne. Une date manquante bloque au
+   lieu de deviner ; un périmètre vide retourne des requêtes nulles, à ne pas exécuter.
+   Recherche complémentaire : sujet de campagne OU expéditeurs admissibles, `in:anywhere`
+   (y compris spam/corbeille). Vérifier le destinataire original et les IDs des rebonds.
+   Les résultats hors périmètre, notamment les fils historiques exclus, ne sont pas lus.
 5. Lire TOUTES les pages avec le `next_page_token` retourné. Garder query et started_at
    fixes, sauvegarder chaque page avec `scan-page` avant d'avancer. Une page vide peut
-   encore avoir un curseur. Aucun curseur n'est inventé. Si le curseur expire, refaire
-   le scan complet avec un nouvel identifiant après avoir conservé les IDs acquis.
-   La déduplication rend ce rattrapage idempotent.
+   encore avoir un curseur. Aucun curseur n'est inventé. Si le curseur expire, utiliser
+   `scan-restart input.json` avec `scan_id`, `expected_page_token`, `new_scan_id`,
+   `started_at` UTC, `reason` et `evidence` de l'échec réellement observé. Cette transition
+   archive le scan INCOMPLET dans `local_runtime.scan_history`, conserve sa requête et
+   tous ses IDs, puis attend la première page d'un nouveau scan sans curseur. Elle ne
+   déplace jamais `last_completed_scan`. Les anciennes pages ne peuvent pas compléter
+   le nouveau scan ; reprendre la pagination avec son nouvel identifiant et sa date fixe.
+   Une page finale ne doit être enregistrée qu'après une véritable réponse Gmail sans
+   prochain curseur. Ne jamais fabriquer une page vide pour débloquer la reprise.
 6. Ne pas se fier à la limite des messages retournés dans un fil : si la limite est
    atteinte ou si la complétude est incertaine, retrouver les IDs par recherche paginée
    puis lire chaque message. À défaut, HANDOFF sans réponse. `complete:true` ne doit
@@ -72,6 +82,9 @@ préparation et impose un nouveau `prepare`, puis `arm` avec des lectures fraîc
 Elle respecte les arrêts, les réponses humaines et le propriétaire du fil. Ni SENDING
 ni un message déjà répondu ne peuvent être remis en attente. Un changement de lecture,
 d'étoile ou de classement Gmail seul n'invalide plus la préparation ; SENT/DRAFT restent contrôlés.
+`prepare` et `arm` refusent une empreinte de version absente/ancienne/inconnue : relire
+le fil puis reclassifier explicitement. Les événements SAVED historiques restent intacts,
+sans recalcul à partir d'une ancienne capture.
 
 Si et seulement si `arm` réussit : vérifier à nouveau STOP, appeler Gmail send_email
 UNE SEULE FOIS avec reply_message_id et le texte retournés. Ne pas envoyer depuis
@@ -93,6 +106,21 @@ constitue pas à elle seule une preuve d'échec.
 `booking input.json` attend account, thread_id, event et invitee provenant des
 lectures Calendly. Il valide type d'événement, hôte, invité actif, créneau et fuseau.
 Une notification durable est créée. Cette commande ne réserve aucun rendez-vous.
+
+Un autre URI de rendez-vous ne remplace jamais silencieusement le précédent. Pour une
+reprogrammation déjà réalisée dans Calendly, fournir aussi `previous_booking` contenant
+`event` et `invitee`, relus dans Calendly : ancien URI exact, événement annulé du bon
+type et hôte, invité annulé correspondant au prospect et à cet événement. Sans ces
+preuves, la commande refuse toute mutation ; conserver les lectures et demander une
+vérification humaine (deux rendez-vous distincts peuvent être légitimes). Ne pas annuler
+un rendez-vous pour faire passer ce contrôle.
+
+La preuve précédente et la preuve d'annulation sont conservées dans `booking_history`.
+Un changement de preuve pour le même URI conserve également l'ancienne version ; un
+créneau changé produit une notification dédupliquée. Une relecture identique ne crée ni
+révision ni notification. STOPPED, BOUNCED et HANDOFF ne sont jamais réouverts.
+L'exclusion BOOKED concerne la prospection Gmail ; le contrôle Calendly peut vérifier
+une reprogrammation d'un rendez-vous déjà enregistré, sans reprendre la prospection.
 
 `local_runtime.notifications` est une file durable. Ne marquer une notification
 livrée via `notify-ack KEY` qu'après l'avoir effectivement produite dans Desktop.
@@ -139,9 +167,11 @@ arrêter la tâche et les envois directement depuis Desktop.
 de façon idempotente. Pour restaurer : `restore local/backups/journal-UUID.json`.
 Cela conserve les reçus, force monitor et invalide la preuve de test planifié.
 La restauration refuse AVANT écriture tout retour qui perdrait ou modifierait une
-réservation, un envoi incertain/confirmé, l'historique envoyé, un compteur de réponses
-ou un arrêt métier. Les reçus sont validés avant remplacement ; les notifications
-actuelles sont préservées et la révision reste croissante. Un refus ne modifie pas le journal.
+réservation, un envoi incertain/confirmé, un événement SAVED (y compris absence et
+pas maintenant), l'historique envoyé, un compteur, un arrêt métier ou les preuves de
+rendez-vous. Choisir un backup plus récent si un événement serait perdu ou modifié.
+Les reçus sont validés avant remplacement ; notifications, scans et historique de scans
+actuels sont préservés et la révision reste croissante. Un refus ne modifie pas le journal.
 Un reçu sans intention correspondante bloque : choisir un backup plus récent ou
 réconcilier manuellement à partir des preuves Gmail, sans envoyer.
 

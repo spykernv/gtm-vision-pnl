@@ -24,6 +24,7 @@ python -X utf8 scripts/gtm.py status
 python -X utf8 -m unittest discover -s tests -v
 python -X utf8 scripts/gtm.py stop
 python -X utf8 scripts/gtm.py recover
+python -X utf8 scripts/gtm.py scan-scope
 python -X utf8 scripts/gtm.py monitor
 python -B -X utf8 scripts/verify_installation.py
 ```
@@ -84,6 +85,8 @@ Tests en simulation : doublon, refus, réponse humaine entre préparation/envoi,
 envoi incertain, panne de sauvegarde après envoi, redémarrage, réception dupliquée,
 concurrence, plafond de réponses, arrêt d'urgence, pagination et réservation vérifiée.
 Ces tests ne constituent pas une preuve d'envoi réel ni de déclenchement planifié.
+Les scénarios de reprise couvrent aussi le curseur expiré (`scan-restart`), la
+reprogrammation avec preuves d'annulation et la préservation des événements SAVED.
 Les preuves initiales sont dans local/evidence/DELIVERY.md. L'état courant est un
 instantané daté dans local/evidence/STATUS.md, généré par scripts/status_view.py.
 Le vérificateur d'installation ne modifie ni journal, ni gates, ni rapports.

@@ -6,7 +6,7 @@ SENDING has no automatic retry: external delivery is not transactional with disk
 import argparse
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import getaddresses
 import hashlib
 import json
@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TERMINAL = {'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}
 REPLY_KINDS = {'simple_question', 'interest', 'meeting_request'}
 KINDS = REPLY_KINDS | {'refusal', 'permanent_bounce', 'automatic', 'not_now', 'handoff'}
+FINGERPRINT_VERSION = 2
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -239,7 +240,7 @@ class Store:
                      'inbound_thread_id': message['thread_id'], 'inbound_rfc_id': h.get('message-id'),
                      'classification': kind, 'phase': 'DETECTED', 'detected_at': now(),
                      'thread_fingerprint': fingerprint(thread), 'evidence': item.get('evidence', ''),
-                     'fingerprint_version': 2,
+                     'fingerprint_version': FINGERPRINT_VERSION,
                      'notification_required': current in {'HANDOFF', 'BOUNCED'}}
             if reclassify:
                 event['reclassification_history'] = previous.get('reclassification_history', []) + [
@@ -258,6 +259,8 @@ class Store:
             e = state['local_runtime']['events'][item['key']]
             if e['phase'] != 'DETECTED' or e['classification'] not in REPLY_KINDS:
                 raise Blocked('Event not eligible for reply preparation')
+            if e.get('fingerprint_version', 1) != FINGERPRINT_VERSION:
+                raise Blocked('Unsupported fingerprint version; reread and reclassify before preparation')
             c = self.campaign(state, e['account'], e['thread_id'])
             if c['conversation_state'] in TERMINAL:
                 raise Blocked('Conversation suspended')
@@ -295,6 +298,8 @@ class Store:
                 blocked = 'Manual reply detected; conversation handed off'
             elif c['conversation_state'] in TERMINAL or c.get('auto_reply_count', 0) >= 3:
                 blocked = 'Conversation suspended or reply limit reached'
+            elif e.get('fingerprint_version', 1) != FINGERPRINT_VERSION:
+                blocked = 'Unsupported fingerprint version; reread and reclassify before replying'
             elif fingerprint(item['thread']) != e['thread_fingerprint']:
                 blocked = 'Thread changed; reclassify before replying'
             else:
@@ -361,6 +366,51 @@ class Store:
                 recovered.append(item['key'])
         return {'recovered': recovered}
 
+    def scan_scope(self):
+        state = read(self.path)
+        eligible = [s for s in state['sent'] if s.get('actual_from') == state['preferred_sender']
+                    and s.get('conversation_state') not in TERMINAL]
+        result = {'account': state['preferred_sender'], 'thread_ids': [s['result']['thread_id'] for s in eligible],
+                  'query': None, 'bounce_query': None, 'after_date': None}
+        if not eligible:
+            return result
+        try:
+            earliest = min(date.fromisoformat(s['sent_date']) for s in eligible)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise Blocked('Valid sent_date required for every eligible send') from exc
+        # Full previous day avoids timezone-boundary loss from Gmail date searches.
+        after = (earliest - timedelta(days=1)).strftime('%Y/%m/%d')
+        senders = ' '.join('from:' + s['to'] for s in eligible)
+        result.update(after_date=after, earliest_sent_date=earliest.isoformat(),
+                      query='in:anywhere after:' + after + ' {subject:"rapprocher marge et factures logistiques" ' + senders + '}',
+                      bounce_query='in:anywhere after:' + after + ' {from:mailer-daemon from:postmaster}')
+        return result
+
+    def scan_restart(self, item):
+        with self.transaction() as state:
+            rt = state['local_runtime']
+            scan = rt.get('scan')
+            if not scan or scan.get('complete') or item['scan_id'] != scan['id']:
+                raise Blocked('Only the current incomplete scan can be restarted')
+            if 'expected_page_token' not in item or item['expected_page_token'] != scan['next_page_token']:
+                raise Blocked('Scan cursor changed; reload before restart')
+            if not item.get('reason') or not item.get('evidence'):
+                raise Blocked('Restart reason and actual failure evidence required')
+            history = rt.setdefault('scan_history', [])
+            used = {s['id'] for s in history} | {scan['id']}
+            if not item.get('new_scan_id') or item['new_scan_id'] in used:
+                raise Blocked('Restart requires a new unused scan id')
+            if datetime.fromisoformat(item['started_at']).tzinfo is None:
+                raise Blocked('Restart start time requires timezone')
+            abandoned = deepcopy(scan)
+            abandoned.update(abandoned_at=now(), abandon_reason=item['reason'],
+                             abandon_evidence=deepcopy(item['evidence']), restarted_as=item['new_scan_id'])
+            history.append(abandoned)
+            rt['scan'] = {'id':item['new_scan_id'], 'query':scan['query'], 'started_at':item['started_at'],
+                          'next_page_token':None, 'message_ids':deepcopy(scan['message_ids']),
+                          'pages':[], 'complete':False, 'restarted_from':scan['id']}
+            return deepcopy(rt['scan'])
+
     def scan_page(self, item):
         with self.transaction() as state:
             rt = state['local_runtime']
@@ -368,9 +418,14 @@ class Store:
             if not scan or scan.get('complete'):
                 if item.get('page_token'):
                     raise Blocked('First page requires null cursor')
+                history = rt.setdefault('scan_history', [])
+                if item['scan_id'] in {s['id'] for s in history} or (scan and item['scan_id'] == scan['id']):
+                    raise Blocked('Completed or abandoned scan id cannot be reused')
+                if scan:
+                    history.append(deepcopy(scan))
                 scan = {'id': item['scan_id'], 'query': item['query'], 'started_at': item['started_at'], 'next_page_token': None, 'message_ids': [], 'pages': []}
                 rt['scan'] = scan
-            if item['scan_id'] != scan['id'] or item['query'] != scan['query'] or item.get('page_token') != scan['next_page_token']:
+            if item['scan_id'] != scan['id'] or item['query'] != scan['query'] or item['started_at'] != scan['started_at'] or item.get('page_token') != scan['next_page_token']:
                 raise Blocked('Scan cursor or query mismatch')
             token = item.get('next_page_token')
             if token and token in scan['pages']:
@@ -411,6 +466,8 @@ class Store:
 
     def booking(self, item):
         with self.transaction() as state:
+            if item['account'] != state['preferred_sender']:
+                raise Blocked('Wrong connected account for booking evidence')
             c = self.campaign(state, item['account'], item['thread_id'])
             event, invitee = item['event'], item['invitee']
             if event.get('status') != 'active' or event.get('event_type') != state['calendly']['selected_event_uri']:
@@ -421,11 +478,31 @@ class Store:
                 raise Blocked('Confirmed slot and timezone required')
             if state['calendly']['user_uri'] not in {m.get('user') for m in event.get('event_memberships', [])}:
                 raise Blocked('Wrong Calendly host')
+            previous_uri = c.get('calendly_event_uri')
+            previous = c.get('booking_evidence')
+            cancellation = None
+            if previous_uri and previous_uri != event['uri']:
+                cancellation = item.get('previous_booking', {})
+                old_event, old_invitee = cancellation.get('event', {}), cancellation.get('invitee', {})
+                if (old_event.get('uri') != previous_uri or old_event.get('status') != 'canceled'
+                    or old_event.get('event_type') != state['calendly']['selected_event_uri']
+                    or state['calendly']['user_uri'] not in {m.get('user') for m in old_event.get('event_memberships', [])}
+                    or old_invitee.get('event') != previous_uri or old_invitee.get('status') != 'canceled'
+                    or old_invitee.get('email', '').lower() != c['to'].lower()):
+                    raise Blocked('Existing booking differs; read cancellation evidence or request human review')
+            if previous and previous != item:
+                c.setdefault('booking_history', []).append({'recorded_at':now(),
+                    'booking_evidence':deepcopy(previous), 'cancellation_evidence':deepcopy(cancellation)})
             c['calendly_event_uri'] = event['uri']
-            c['booking_evidence'] = item
+            c['booking_evidence'] = deepcopy(item)
             if c.get('conversation_state') not in {'STOPPED', 'BOUNCED', 'HANDOFF'}:
                 c['conversation_state'] = 'BOOKED'
             key = 'booking:' + event['uri'] + ':' + invitee['email'].lower()
+            if previous and previous_uri == event['uri']:
+                old_slot = [previous['event'].get(k) for k in ('start_time','end_time')]
+                new_slot = [event.get(k) for k in ('start_time','end_time')]
+                if old_slot != new_slot:
+                    key += ':slot:' + digest(new_slot)
             state['local_runtime']['notifications'].setdefault(key, {'kind':'BOOKED','created_at':now(),'event_key':key})
         return {'confirmed_booking': True}
 
@@ -451,9 +528,9 @@ class Store:
             # Refuse a rollback of external effects, uncertain intents or business stops.
             old_events = restored['local_runtime']['events']
             for key, event in current['local_runtime']['events'].items():
-                if event['phase'] in {'CLAIMED', 'SENDING'} or event.get('armed_at') or event.get('sent_id'):
+                if event['phase'] in {'CLAIMED', 'SENDING', 'SAVED'} or event.get('armed_at') or event.get('sent_id'):
                     if old_events.get(key) != event:
-                        raise Blocked('Backup would discard or change a send intent; reconcile before restore')
+                        raise Blocked('Backup would discard or change a send intent or saved event; reconcile before restore')
             for sent in current['sent']:
                 matches = [s for s in restored['sent'] if s.get('actual_from') == sent.get('actual_from') and s['result']['id'] == sent['result']['id']]
                 if len(matches) != 1:
@@ -466,12 +543,18 @@ class Store:
                     raise Blocked('Backup would reduce confirmed reply count')
                 if sent.get('conversation_state') in TERMINAL and old.get('conversation_state') != sent['conversation_state']:
                     raise Blocked('Backup would reopen a suspended conversation')
+                for field in ('calendly_event_uri', 'booking_evidence', 'booking_history'):
+                    if sent.get(field) != old.get(field):
+                        raise Blocked('Backup would change booking history; choose a newer backup')
             for path in (self.local / 'receipts').glob('*.json'):
                 item = read(path)
                 if item['key'] not in old_events:
                     raise Blocked('Backup missing receipt intent; restore a newer backup')
                 self.validate_receipt(restored, old_events[item['key']], item)
             restored['local_runtime']['notifications'] = deepcopy(current['local_runtime']['notifications'])
+            for field in ('scan', 'scan_history', 'last_completed_scan'):
+                if field in current['local_runtime']:
+                    restored['local_runtime'][field] = deepcopy(current['local_runtime'][field])
             restored['local_runtime']['mode'] = 'monitor'
             restored['local_runtime']['gates']['scheduled_run_verified'] = False
             current.clear()
@@ -509,9 +592,9 @@ def main():
     p = sub.add_parser('init')
     for name in ('journal', 'workbook', 'workflow'):
         p.add_argument('--' + name, required=True)
-    for name in ('status','recover','stop','monitor','live','sync'):
+    for name in ('status','recover','stop','monitor','live','sync','scan-scope'):
         sub.add_parser(name)
-    for name in ('ingest','reclassify','prepare','arm','receipt','scan-page','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')
@@ -523,8 +606,8 @@ def main():
             result = initialize(args.root,args.journal,args.workbook,args.workflow)
         elif args.cmd in {'stop','monitor','live'}:
             result = store.mode(args.cmd)
-        elif args.cmd in {'status','recover','sync'}:
-            result = getattr(store,args.cmd)()
+        elif args.cmd in {'status','recover','sync','scan-scope'}:
+            result = getattr(store,args.cmd.replace('-','_'))()
         elif args.cmd == 'notify-ack':
             result = store.notify_ack(args.key)
         elif args.cmd == 'release':
