@@ -1,0 +1,10 @@
+{
+  "preferred_sender": "owner@example.invalid",
+  "signature": "Example Owner\n+00 000",
+  "selected_model": "gpt-6-astra",
+  "calendar_url": "https://example.invalid/meeting",
+  "journal": "local/GTM_Design_Partners_Etat.json",
+  "mode": "monitor",
+  "proposed_interval_minutes": 60,
+  "secrets": "None. Authenticate plugins in Desktop; do not paste tokens here."
+}

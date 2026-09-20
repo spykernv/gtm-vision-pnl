@@ -1,0 +1,21 @@
+# Only code, generic documentation, and synthetic examples are versioned.
+/*
+!/.gitignore
+!/AGENTS.md
+!/README.md
+!/pyproject.toml
+!/requirements.txt
+!/gtm.ps1
+!/scripts/
+!/tests/
+!/docs/
+!/examples/
+__pycache__/
+*.pyc
+.env*
+*.xlsx
+*.csv
+*.log
+**/local/
+**/backups/
+**/secrets/

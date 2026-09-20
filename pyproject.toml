@@ -1,0 +1,6 @@
+[project]
+name = "gtm-vision-pnl-local"
+version = "0.1.0"
+requires-python = ">=3.12,<3.15"
+dependencies = []
+description = "Local campaign journal and agent safety controls; no model or mail API client"

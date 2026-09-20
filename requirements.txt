@@ -1,0 +1,1 @@
+# Python standard library only. No pip installation, paid API, or background CLI agent.
