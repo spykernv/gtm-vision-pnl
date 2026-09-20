@@ -1,6 +1,7 @@
 # Only code, generic documentation, and synthetic examples are versioned.
 /*
 !/.gitignore
+!/.gitattributes
 !/AGENTS.md
 !/README.md
 !/pyproject.toml

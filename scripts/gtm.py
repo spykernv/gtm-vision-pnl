@@ -81,7 +81,16 @@ def addresses(value):
     return {a.lower() for _, a in getaddresses([value]) if a}
 
 def fingerprint(thread):
-    return digest(thread['messages'])
+    # Gmail read/star/archive labels and snippets are not conversation changes.
+    messages = []
+    for m in thread['messages']:
+        payload = deepcopy(m.get('payload', {}))
+        if 'headers' in payload:
+            payload['headers'] = sorted(payload['headers'], key=lambda h: (h['name'].lower(), h['value']))
+        messages.append({'id': m['id'], 'thread_id': m['thread_id'],
+                         'internal_date': m.get('internal_date'), 'payload': payload,
+                         'send_labels': sorted(set(m.get('label_ids', [])) & {'SENT', 'DRAFT'})})
+    return digest(sorted(messages, key=lambda m: m['id']))
 
 def body_text(payload):
     text = payload.get('body', {}).get('content') or ''
@@ -96,16 +105,44 @@ class Store:
     def commit(self, state):
         atomic(self.path, state)
 
+    def sync_summary(self, state):
+        rt = state['local_runtime']
+        if rt.get('summary_schema') != 2:
+            keys = ('automation', 'architecture', 'inbound_processing', 'gmail_reconnection',
+                    'next_actions', 'unresolved_current', 'automation_active', 'sending_blocker')
+            archive = state.setdefault('historical_metadata', {})
+            for key in keys:
+                if key in state:
+                    archive.setdefault(key, state.pop(key))
+            rt['summary_schema'] = 2
+        state['auto_reply_enabled'] = rt['mode'] == 'live' and all(rt['gates'].values())
+        state['unresolved_current'] = [k for k, v in rt['gates'].items() if not v]
+        state['inbound_processing'] = {'last_check_date': rt.get('last_completed_scan'),
+                                       'source': 'local_runtime.scan'}
+        state['current_status'] = {'mode': rt['mode'], 'source': 'local_runtime',
+                                  'scheduler_status': 'Check Desktop automation; not inferred from mode',
+                                  'legacy_coverage_resolved': rt['gates'].get('legacy_coverage_resolved', False)}
+
+    def sync(self):
+        with self.transaction():
+            pass
+        return self.status()
+
     @contextmanager
     def transaction(self):
         with mutex(self.local / 'journal.lock'):
             original = self.path.read_bytes()
             state = json.loads(original.decode('utf-8-sig'))
+            before = deepcopy(state)
             yield state
             if self.path.read_bytes() != original:
                 raise Blocked('Journal changed outside the lock; reload before retry')
-            state['local_runtime']['revision'] += 1
+            self.sync_summary(state)
+            if state == before:
+                return
+            state['local_runtime']['revision'] = before['local_runtime']['revision'] + 1
             state['local_runtime']['updated_at'] = now()
+            state['updated_date'] = state['local_runtime']['updated_at'][:10]
             backup = self.local / 'backups' / ('journal-' + uuid.uuid4().hex + '.json')
             atomic(backup, json.loads(original.decode('utf-8-sig')))
             self.commit(state)
@@ -144,12 +181,25 @@ class Store:
         manual = any(m['id'] not in known and ('SENT' in m.get('label_ids', []) or account in addresses(headers(m).get('from', ''))) for m in messages)
         return campaign, manual
 
-    def ingest(self, item):
+    def reclassify(self, item):
+        return self.ingest(item, reclassify=True)
+
+    def ingest(self, item, reclassify=False):
         account, thread = item['account'], item['thread']
         key = account + ':' + item['inbound_id']
         with self.transaction() as state:
             rt = state['local_runtime']
-            if key in rt['events']:
+            previous = rt['events'].get(key)
+            if reclassify:
+                if not previous or previous['phase'] not in {'DETECTED', 'CLAIMED'} or previous.get('armed_at') or previous.get('sent_id'):
+                    raise Blocked('Only an unsent pending event can be reclassified')
+                if item.get('expected_fingerprint') != previous['thread_fingerprint']:
+                    raise Blocked('Event changed; reload before reclassification')
+                if previous['thread_id'] != thread['id']:
+                    raise Blocked('Reclassification must keep the original thread')
+                if any(e is not previous and e['thread_id'] == thread['id'] and e['phase'] in {'CLAIMED', 'SENDING'} for e in rt['events'].values()):
+                    raise Blocked('Another event owns this thread')
+            elif previous:
                 return {'duplicate': True, 'key': key, 'phase': rt['events'][key]['phase']}
             campaign, manual = self.inspect_thread(state, account, thread)
             message = item.get('detached_message') or next((m for m in thread['messages'] if m['id'] == item['inbound_id']), None)
@@ -176,7 +226,7 @@ class Store:
             if campaign['to'].lower() not in addresses(h.get('from', '')) and kind not in {'automatic', 'permanent_bounce'}:
                 kind = 'handoff'
             current = campaign.get('conversation_state', 'WAITING_REPLY')
-            if manual:
+            if manual and current not in TERMINAL:
                 current = 'HANDOFF'
             if kind == 'refusal':
                 current = 'STOPPED'
@@ -189,7 +239,12 @@ class Store:
                      'inbound_thread_id': message['thread_id'], 'inbound_rfc_id': h.get('message-id'),
                      'classification': kind, 'phase': 'DETECTED', 'detected_at': now(),
                      'thread_fingerprint': fingerprint(thread), 'evidence': item.get('evidence', ''),
+                     'fingerprint_version': 2,
                      'notification_required': current in {'HANDOFF', 'BOUNCED'}}
+            if reclassify:
+                event['reclassification_history'] = previous.get('reclassification_history', []) + [
+                    {k: deepcopy(v) for k, v in previous.items() if k != 'reclassification_history'}]
+                event['reclassified_at'] = now()
             if current in TERMINAL or kind in {'automatic', 'not_now'}:
                 event['phase'] = 'SAVED'
                 event['saved_at'] = now()
@@ -393,6 +448,30 @@ class Store:
             raise Blocked('Not a compatible runtime backup')
         # Keep receipts and force monitor mode. Recovery must succeed before activation.
         with self.transaction() as current:
+            # Refuse a rollback of external effects, uncertain intents or business stops.
+            old_events = restored['local_runtime']['events']
+            for key, event in current['local_runtime']['events'].items():
+                if event['phase'] in {'CLAIMED', 'SENDING'} or event.get('armed_at') or event.get('sent_id'):
+                    if old_events.get(key) != event:
+                        raise Blocked('Backup would discard or change a send intent; reconcile before restore')
+            for sent in current['sent']:
+                matches = [s for s in restored['sent'] if s.get('actual_from') == sent.get('actual_from') and s['result']['id'] == sent['result']['id']]
+                if len(matches) != 1:
+                    raise Blocked('Backup would discard a journaled outbound')
+                old = matches[0]
+                for field in ('to', 'body', 'subject', 'result', 'actual_from', 'sent_date'):
+                    if old.get(field) != sent.get(field):
+                        raise Blocked('Backup conflicts with outbound history')
+                if old.get('auto_reply_count', 0) < sent.get('auto_reply_count', 0):
+                    raise Blocked('Backup would reduce confirmed reply count')
+                if sent.get('conversation_state') in TERMINAL and old.get('conversation_state') != sent['conversation_state']:
+                    raise Blocked('Backup would reopen a suspended conversation')
+            for path in (self.local / 'receipts').glob('*.json'):
+                item = read(path)
+                if item['key'] not in old_events:
+                    raise Blocked('Backup missing receipt intent; restore a newer backup')
+                self.validate_receipt(restored, old_events[item['key']], item)
+            restored['local_runtime']['notifications'] = deepcopy(current['local_runtime']['notifications'])
             restored['local_runtime']['mode'] = 'monitor'
             restored['local_runtime']['gates']['scheduled_run_verified'] = False
             current.clear()
@@ -430,9 +509,9 @@ def main():
     p = sub.add_parser('init')
     for name in ('journal', 'workbook', 'workflow'):
         p.add_argument('--' + name, required=True)
-    for name in ('status','recover','stop','monitor','live'):
+    for name in ('status','recover','stop','monitor','live','sync'):
         sub.add_parser(name)
-    for name in ('ingest','prepare','arm','receipt','scan-page','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','scan-page','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')
@@ -444,7 +523,7 @@ def main():
             result = initialize(args.root,args.journal,args.workbook,args.workflow)
         elif args.cmd in {'stop','monitor','live'}:
             result = store.mode(args.cmd)
-        elif args.cmd in {'status','recover'}:
+        elif args.cmd in {'status','recover','sync'}:
             result = getattr(store,args.cmd)()
         elif args.cmd == 'notify-ack':
             result = store.notify_ack(args.key)

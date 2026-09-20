@@ -6,18 +6,18 @@ import subprocess
 import sys
 
 ROOT=Path(__file__).resolve().parents[1]
-ALLOWED_ROOT={'.gitignore','AGENTS.md','README.md','pyproject.toml','requirements.txt','gtm.ps1'}
+ALLOWED_ROOT={'.gitignore','.gitattributes','AGENTS.md','README.md','pyproject.toml','requirements.txt','gtm.ps1'}
 ALLOWED_FOLDERS={'docs','examples','scripts','tests'}
 
 def git(*args):
-    return subprocess.check_output(['git','-c','core.quotepath=false',*args],cwd=ROOT)
+    return subprocess.check_output(['git','-c','safe.directory='+ROOT.as_posix(),'-c','core.quotepath=false',*args],cwd=ROOT)
 
 def main():
     names=git('diff','--cached','--name-only','--diff-filter=ACMR','-z').decode().split('\0')
     forbidden=[]
     journal=ROOT/'local'/'GTM_Design_Partners_Etat.json'
     if journal.exists():
-        state=json.loads(journal.read_text(encoding='utf-8'))
+        state=json.loads(journal.read_text(encoding='utf-8-sig'))
         forbidden += [state['preferred_sender'], state['signature'], state.get('phone','')]
         for record in state['sent']:
             forbidden += [record['to'],record['result']['id'],record['result']['thread_id']]

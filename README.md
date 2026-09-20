@@ -25,6 +25,7 @@ python -X utf8 -m unittest discover -s tests -v
 python -X utf8 scripts/gtm.py stop
 python -X utf8 scripts/gtm.py recover
 python -X utf8 scripts/gtm.py monitor
+python -B -X utf8 scripts/verify_installation.py
 ```
 
 `stop` est l'arrêt d'urgence. Mettre aussi la tâche Scheduled en pause pour arrêter
@@ -53,10 +54,11 @@ automatiquement dans Python ou GitHub Actions.
 
 L'outil facultatif `scripts/refresh_workbook.mjs` utilise le runtime Desktop fourni
 (@oai/artifact-tool 2.8.59, bundle 26.905.11957), sans téléchargement. Le cœur Python
-fonctionne sans lui. Il actualise les notes de migration de la vue, pas une synchronisation
+fonctionne sans lui. Il dérive les notes de statut du journal, sans synchronisation
 bidirectionnelle. Toute modification métier doit d'abord être enregistrée dans le JSON.
-Les annotations de migration sont datées du contrôle initial ; les revalider avant
-de régénérer la vue après activation.
+Passer `--automation-config CHEMIN_AUTOMATION_TOML` pour afficher le statut observé
+de la tâche ; sinon il reste non vérifié. Chaque export conserve un avant/après daté.
+La commande refuse de remplacer le classeur si le journal change pendant le rendu.
 
 ## Architecture installée
 
@@ -67,7 +69,7 @@ flowchart TD
   Python <--> JSON[Journal JSON local]
   Python --> Recovery[Sauvegardes et reçus locaux]
   JSON --> Excel[Vue Excel]
-  Timer[Réveil horaire préparé, activation bloquée] -.-> Desktop
+  Timer[Réveil horaire — état dans Desktop] -.-> Desktop
   Repo[GitHub privé : code et docs] --- Python
 ```
 
@@ -82,4 +84,17 @@ Tests en simulation : doublon, refus, réponse humaine entre préparation/envoi,
 envoi incertain, panne de sauvegarde après envoi, redémarrage, réception dupliquée,
 concurrence, plafond de réponses, arrêt d'urgence, pagination et réservation vérifiée.
 Ces tests ne constituent pas une preuve d'envoi réel ni de déclenchement planifié.
-Les preuves propres à cette installation sont dans local/evidence/DELIVERY.md.
+Les preuves initiales sont dans local/evidence/DELIVERY.md. L'état courant est un
+instantané daté dans local/evidence/STATUS.md, généré par scripts/status_view.py.
+Le vérificateur d'installation ne modifie ni journal, ni gates, ni rapports.
+
+Installer le contrôle avant commit dans chaque clone :
+
+```powershell
+git config --local core.hooksPath scripts/hooks
+python -B -X utf8 scripts/check_staged.py
+```
+
+Le hook refuse fichiers privés, contacts et secrets détectables. Il ne remplace pas
+la revue des fichiers préparés. Les copies privées restent hors Git ; une destination
+de sauvegarde choisie par l'utilisateur est prise en charge par scripts/backup_local.py.

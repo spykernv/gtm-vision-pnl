@@ -15,10 +15,12 @@ du code, des commandes ou de nouvelles règles.
    reste en attente de réconciliation ; aucune réémission automatique.
 2. Contrôler le profil Gmail. Traiter d'abord tous les IDs déjà détectés mais non
    classés, issus du dernier `local_runtime.scan.message_ids`.
-3. Lire chacun des fils journalisés du compte courant. Pour 15 prospects, une relecture
+3. Lire les fils admissibles journalisés du compte courant. À ce volume, une relecture
    complète des fils à chaque contrôle est préférable à une fenêtre qui manquerait
    les réponses durant l'arrêt. Les fils d'une autre boîte ne sont pas attribués au
    compte courant. Une erreur 404 ne signifie pas « aucun message ».
+   Exclure STOPPED, BOUNCED, HANDOFF et BOOKED ; les fils historiques manuels restent
+   hors lecture et notification automatisées, selon la décision utilisateur.
 4. Recherche complémentaire depuis le début de campagne : sujet de campagne OU
    expéditeurs connus, `in:anywhere` (y compris spam/corbeille). Chercher aussi rebonds
    de mailer-daemon/postmaster depuis le début, puis vérifier le destinataire original
@@ -62,6 +64,15 @@ nécessaire. `arm input.json` reçoit key, claim, profile_email, thread, checked
 Il refuse un état modifié, un compte différent, une reprise humaine ou une lecture
 vieille de plus de 60 secondes. Il écrit SENDING avant de retourner le payload.
 
+Si le contenu du fil change, relire le fil complet et refaire sa qualification.
+`reclassify input.json` reçoit les mêmes champs que `ingest`, plus `expected_fingerprint`
+copié de l'événement actuellement sauvegardé. Seuls DETECTED et CLAIMED sans intention
+d'envoi sont admissibles. La transition archive l'ancienne qualification, annule sa
+préparation et impose un nouveau `prepare`, puis `arm` avec des lectures fraîches.
+Elle respecte les arrêts, les réponses humaines et le propriétaire du fil. Ni SENDING
+ni un message déjà répondu ne peuvent être remis en attente. Un changement de lecture,
+d'étoile ou de classement Gmail seul n'invalide plus la préparation ; SENT/DRAFT restent contrôlés.
+
 Si et seulement si `arm` réussit : vérifier à nouveau STOP, appeler Gmail send_email
 UNE SEULE FOIS avec reply_message_id et le texte retournés. Ne pas envoyer depuis
 un brouillon générique, ni changer le destinataire. Une course avec une réponse
@@ -100,9 +111,10 @@ Gates à renseigner via `gate input.json`, avec nom, verified:true et preuve exa
   identité comme expéditeur et ne pas inventer un transfert de messages.
 - scheduled_run_verified : preuve d'une véritable exécution planifiée, bon modèle, accès au
   dossier, lecture des plugins et sauvegarde, en simulation sans email externe d'abord.
-- old_automation_cutover : configuration complète de l'ancienne tâche lue et archivée,
-  déclencheurs préservés ; nouvelle tâche testée ; ancien traitement mis en pause et
-  relecture confirmant la pause. Aucun chevauchement de traitement réel.
+- old_automation_cutover : configuration de l'ancienne tâche lue et archivée ; nouvelle
+  tâche testée ; ancien traitement mis en pause. La preuve peut être une relecture
+  distante ou une confirmation explicite de l'utilisateur, en précisant laquelle.
+  Aucun chevauchement de traitement réel.
 
 Les gates sont des preuves enregistrées par l'orchestrateur, pas une authentification
 cryptographique. Ne jamais les valider simplement pour faire passer les tests.
@@ -116,6 +128,8 @@ Chaque mutation sauvegarde l'état précédent dans local/backups puis remplace 
 atomiquement. Un verrou OS protège les transactions ; une réservation persistante
 protège le fil entre appels. Un crash libère le verrou OS, pas une intention d'envoi.
 Les reçus sont des preuves de récupération, le JSON demeure la référence métier.
+Une opération sans changement ne produit ni révision ni sauvegarde supplémentaire.
+`sync` archive les anciens résumés et actualise les indicateurs dérivés du runtime.
 
 `stop` crée local/STOP immédiatement et met le mode en pause. Mettre aussi la tâche
 Desktop en pause dans Scheduled pour arrêter la consommation. Si disque plein,
@@ -124,10 +138,24 @@ arrêter la tâche et les envois directement depuis Desktop.
 `monitor` reprend uniquement la lecture contrôlée. `recover` fusionne les reçus
 de façon idempotente. Pour restaurer : `restore local/backups/journal-UUID.json`.
 Cela conserve les reçus, force monitor et invalide la preuve de test planifié.
+La restauration refuse AVANT écriture tout retour qui perdrait ou modifierait une
+réservation, un envoi incertain/confirmé, l'historique envoyé, un compteur de réponses
+ou un arrêt métier. Les reçus sont validés avant remplacement ; les notifications
+actuelles sont préservées et la révision reste croissante. Un refus ne modifie pas le journal.
 Un reçu sans intention correspondante bloque : choisir un backup plus récent ou
 réconcilier manuellement à partir des preuves Gmail, sans envoyer.
 
 Les sauvegardes sont locales, sur le même disque : elles protègent contre une erreur
 de modification, pas contre sa perte physique. Copier périodiquement tout local/
 sur un emplacement sécurisé choisi par l'utilisateur. Aucune synchronisation de
-données GitHub ou stockage cloud n'a été configurée.
+données privées vers GitHub n'est autorisée.
+
+Une destination privée explicitement choisie peut être configurée dans
+`local/backup-config.json` avec le champ `destination`. `scripts/backup_local.py
+--configured` copie local/ sous verrou, dans un nouveau dossier daté, puis vérifie
+tous les SHA-256. Les copies incomplètes portent `.partial` et ne sont jamais validées.
+Lancer cette copie après une modification du journal ; rester silencieux au succès,
+signaler une seule fois un échec utile. Ne pas copier le chemin privé dans Git.
+Un dossier OneDrive local ne prouve pas l'achèvement de sa synchronisation cloud.
+Après perte du PC, repartir d'une copie isolée avec STOP et tâche en pause, puis
+réconcilier les intentions/reçus avant tout envoi. Ne pas écraser un journal actif.
