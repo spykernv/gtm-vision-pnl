@@ -21,6 +21,10 @@ TERMINAL = {'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}
 REPLY_KINDS = {'simple_question', 'interest', 'meeting_request'}
 KINDS = REPLY_KINDS | {'refusal', 'permanent_bounce', 'automatic', 'not_now', 'handoff'}
 FINGERPRINT_VERSION = 2
+RECORD_COLUMNS = ('Rang', 'Sélection', 'Entreprise', 'Pays', 'Shopify', 'Logisticien / indice',
+                  'Preuve 3PL', 'Statut', 'Angle à tester', 'À vérifier', 'Contact public',
+                  'Email professionnel', 'Profil du contact', 'Source logistique / origine',
+                  'Site / preuve Shopify', 'Signal Shopify observé', 'Email : provenance', 'Vague')
 SCAN_HISTORY_LIMIT = 24
 
 def next_scan_id(runtime):
@@ -459,6 +463,34 @@ class Store:
         self.recover()
         return {'saved': item['key'], 'sent_id': item['message']['id']}
 
+    def record_add(self, item):
+        """Explicitly authorized candidate row; never created by the hourly wake, never a send."""
+        with self.transaction() as state:
+            if not item.get('authorization') or not item.get('evidence'):
+                raise Blocked('Explicit user authorization and evidence required to add a candidate')
+            source = item.get('record') or {}
+            rank, company = source.get('Rang'), (source.get('Entreprise') or '').strip()
+            if not isinstance(rank, int) or isinstance(rank, bool) or rank < 1 or not company:
+                raise Blocked('Integer rank and company name required')
+            unknown = set(source) - set(RECORD_COLUMNS)
+            if unknown:
+                raise Blocked('Unknown record columns: ' + ', '.join(sorted(unknown)))
+            if any(r['Rang'] == rank or str(r['Entreprise']).strip().lower() == company.lower() for r in state['records']):
+                raise Blocked('Rank or company already listed')
+            if any(str(s.get('company', '')).strip().lower() == company.lower() for s in state['sent']):
+                raise Blocked('Company already has a journaled send')
+            email = source.get('Email professionnel')
+            if email and (addresses(email) != {email.lower()} or any(s['to'].lower() == email.lower() for s in state['sent'])):
+                raise Blocked('One exact, never-contacted email required')
+            record = {column: source.get(column) for column in RECORD_COLUMNS}
+            record.update({'Rang': rank, 'Entreprise': company, 'Statut': 'À qualifier', 'Vague': None,
+                           'Sélection': source.get('Sélection') or 'Réserve'})
+            state['records'].append(record)
+            state['local_runtime'].setdefault('record_additions', []).append({
+                'rank': rank, 'company': company, 'authorization': item['authorization'],
+                'evidence': deepcopy(item['evidence']), 'added_at': now()})
+            return {'rank': rank, 'company': company, 'records': len(state['records'])}
+
     def scan_scope(self):
         state = read(self.path)
         eligible = [s for s in state['sent'] if s.get('actual_from') == state['preferred_sender']
@@ -727,7 +759,7 @@ def main():
         p.add_argument('--' + name, required=True)
     for name in ('status','recover','stop','monitor','live','sync','scan-scope','compact-scans'):
         sub.add_parser(name)
-    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','scan-page','scan-restart','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','record-add','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')

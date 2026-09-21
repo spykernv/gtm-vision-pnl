@@ -64,6 +64,11 @@ Une vague initiale exige une instruction utilisateur distincte du contrôle hora
 Suivre les rangs du journal, vérifier les contacts publics et la personnalisation,
 les exclusions et la correspondance Gmail existante. Sauvegarder la sélection et
 les messages exacts dans local/evidence. Aucun envoi initial par le réveil horaire.
+Un candidat absent du journal s'ajoute avec `record-add input.json` : `authorization`
+(instruction utilisateur citée), `evidence`, et `record` avec un `Rang` entier libre et une
+`Entreprise` unique, jamais déjà contactée. `Statut` et `Vague` sont forcés à « À qualifier »
+et vide ; l'ajout est tracé dans `local_runtime.record_additions`. Cette commande ne crée
+aucun envoi et n'est jamais exécutée par le réveil horaire.
 
 `outbound-arm input.json` reçoit campaign (rank, company, name, to, wave, subject,
 body, source et proof), authorization, profile_email, checked_at et duplicate_check
