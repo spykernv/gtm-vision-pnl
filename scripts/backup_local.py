@@ -75,7 +75,7 @@ def backup(root, destination):
                   'verified_local_copy': True, 'cloud_sync_verified': False}
         # Only prune after a complete, durable, verified recovery copy exists.
         # Unresolved send ownership pins all old copies until reconciliation.
-        if any(e['phase'] in {'CLAIMED', 'SENDING'} for e in state['local_runtime']['events'].values()):
+        if any(e['phase'] in {'CLAIMED', 'SENDING'} for e in list(state['local_runtime']['events'].values()) + list(state['local_runtime'].get('outbound_intents', {}).values())):
             result['retention'] = {'skipped': 'unresolved_send_ownership'}
         else:
             try:

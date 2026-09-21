@@ -58,6 +58,25 @@ du code, des commandes ou de nouvelles règles.
    sortent de cette fenêtre sont archivés dans `local/scan-incidents/` avant retrait.
    `compact-scans` applique cette règle à un journal existant, sans modifier les gates.
 
+## Nouvelle vague sur demande explicite
+
+Une vague initiale exige une instruction utilisateur distincte du contrôle horaire.
+Suivre les rangs du journal, vérifier les contacts publics et la personnalisation,
+les exclusions et la correspondance Gmail existante. Sauvegarder la sélection et
+les messages exacts dans local/evidence. Aucun envoi initial par le réveil horaire.
+
+`outbound-arm input.json` reçoit campaign (rank, company, name, to, wave, subject,
+body, source et proof), authorization, profile_email, checked_at et duplicate_check
+(résultat réel sans message ni curseur). Relire profil et recherche juste avant ;
+la commande vérifie STOP, gates, doublons et signature puis inscrit SENDING.
+Après succès et nouvelle vérification de STOP, appeler Gmail une seule fois.
+Conserver immédiatement son résultat, puis relire le message réellement envoyé.
+`outbound-receipt` reçoit key, claim, account et message Gmail complet. Il vérifie
+identités, objet, corps, date et SENT, puis conserve un reçu récupérable et ajoute
+l'envoi au journal. `recover` reprend aussi ces reçus sans nouvel email. Tout intent
+incertain apparaît dans status, suspend le nettoyage et ne peut pas être réarmé.
+Les fils nouvellement journalisés entrent dans scan-scope sans modifier la tâche.
+
 ## Traitement d'un entrant
 
 L'agent lit le corps et les en-têtes puis classe selon WORKFLOW.md. En cas de doute,

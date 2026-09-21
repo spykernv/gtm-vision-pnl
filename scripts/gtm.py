@@ -158,7 +158,8 @@ class Store:
         return {'mode': rt['mode'], 'emergency_stop': (self.local / 'STOP').exists(),
                 'revision': rt['revision'], 'historical_sent': len(state['sent']),
                 'events': len(rt['events']), 'pending_notifications': sum(not n.get('delivered_at') for n in rt['notifications'].values()),
-                'uncertain_sends': [k for k, e in rt['events'].items() if e['phase'] == 'SENDING'],
+                'uncertain_sends': [k for k, e in rt['events'].items() if e['phase'] == 'SENDING'] +
+                    [k for k, e in rt.get('outbound_intents', {}).items() if e['phase'] == 'SENDING'],
                 'activation_blockers': [k for k,v in rt['gates'].items() if not v],
                 'last_completed_scan': rt.get('last_completed_scan')}
 
@@ -353,6 +354,9 @@ class Store:
     def recover(self):
         recovered = []
         with self.transaction() as state:
+            for path in sorted((self.local / 'outbound-receipts').glob('*.json')):
+                item = read(path)
+                self.apply_outbound_receipt(state, item)
             for path in sorted((self.local / 'receipts').glob('*.json')):
                 item = read(path)
                 e = state['local_runtime']['events'].get(item['key'])
@@ -369,6 +373,91 @@ class Store:
                     c['conversation_state'] = 'PENDING_BOOKING' if e['classification'] == 'meeting_request' else 'QUALIFYING'
                 recovered.append(item['key'])
         return {'recovered': recovered}
+
+    def outbound_arm(self, item):
+        """Manual, explicitly authorized initial outreach; never retries an intent."""
+        with self.transaction() as state:
+            rt = state['local_runtime']
+            if (self.local / 'STOP').exists() or rt['mode'] != 'live' or not all(rt['gates'].values()):
+                raise Blocked('Live sending disabled')
+            if item['profile_email'] != state['preferred_sender'] or not item.get('authorization'):
+                raise Blocked('Account and explicit wave authorization required')
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(item['checked_at'])).total_seconds()
+            if not 0 <= age <= 60:
+                raise Blocked('Fresh profile and duplicate check required')
+            if item.get('duplicate_check') != {'message_ids': [], 'next_page_token': None}:
+                raise Blocked('Existing correspondence requires review before initial outreach')
+            campaign = deepcopy(item['campaign'])
+            rank, recipient = campaign['rank'], campaign['to']
+            if addresses(recipient) != {recipient.lower()} or any(c in recipient for c in '\r\n,;<> '):
+                raise Blocked('One exact recipient required')
+            if '\n' in campaign['subject'] or '\r' in campaign['subject'] or not campaign['subject']:
+                raise Blocked('Invalid subject')
+            if state['signature'] not in campaign['body'] or not campaign.get('source') or not campaign.get('proof'):
+                raise Blocked('Signature and sourced contact/personalization required')
+            rows = [r for r in state['records'] if r['Rang'] == rank and r['Entreprise'] == campaign['company']]
+            if len(rows) != 1 or rows[0].get('Statut') in {'Envoyé', 'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}:
+                raise Blocked('Candidate missing, already sent or suspended')
+            if any(s.get('rank') == rank or s.get('company') == campaign['company'] or s['to'].lower() == recipient.lower() for s in state['sent']):
+                raise Blocked('Initial outreach already journaled')
+            intents = rt.setdefault('outbound_intents', {})
+            if any(e['phase'] == 'SENDING' for e in intents.values()) or any(e['phase'] in {'CLAIMED', 'SENDING'} for e in rt['events'].values()):
+                raise Blocked('Resolve existing send ownership first')
+            key = 'outbound:' + str(rank)
+            if key in intents or any(e['campaign']['to'].lower() == recipient.lower() for e in intents.values()):
+                raise Blocked('Intent already exists; never blindly retry')
+            claim = uuid.uuid4().hex
+            intents[key] = {'phase': 'SENDING', 'claim': claim, 'account': state['preferred_sender'],
+                            'armed_at': now(), 'campaign': campaign, 'authorization': item['authorization'],
+                            'duplicate_check': deepcopy(item['duplicate_check']), 'checked_at': item['checked_at']}
+            return {'key': key, 'claim': claim, 'to': recipient, 'subject': campaign['subject'], 'body': campaign['body']}
+
+    def apply_outbound_receipt(self, state, item):
+        e = state['local_runtime'].get('outbound_intents', {}).get(item['key'])
+        if not e or e['phase'] not in {'SENDING', 'SAVED'} or e['claim'] != item['claim']:
+            raise Blocked('Missing initial send intent')
+        m, c = item['message'], e['campaign']
+        h = headers(m)
+        if item['account'] != state['preferred_sender'] or e['account'] != item['account']:
+            raise Blocked('Wrong initial receipt account')
+        if not m.get('id') or not m.get('thread_id') or 'SENT' not in m.get('label_ids', []):
+            raise Blocked('Missing sent message evidence')
+        if addresses(h.get('from', '')) != {item['account']} or addresses(h.get('to', '')) != {c['to'].lower()}:
+            raise Blocked('Initial receipt identity mismatch')
+        if h.get('cc') or h.get('bcc') or h.get('in-reply-to') or h.get('subject') != c['subject']:
+            raise Blocked('Initial receipt headers mismatch')
+        if body_text(m['payload']).strip() != c['body'].strip():
+            raise Blocked('Initial receipt body mismatch')
+        if not m.get('internal_date') or int(m['internal_date']) < int(datetime.fromisoformat(e['armed_at']).timestamp() * 1000):
+            raise Blocked('Initial receipt predates intent')
+        if e['phase'] == 'SAVED':
+            if e['sent_id'] != m['id']:
+                raise Blocked('Conflicting initial receipt')
+            return
+        if any(s['result']['id'] == m['id'] or s['result']['thread_id'] == m['thread_id'] or s.get('rank') == c['rank'] for s in state['sent']):
+            raise Blocked('Duplicate initial sent evidence')
+        record = next(r for r in state['records'] if r['Rang'] == c['rank'])
+        sent = deepcopy(c)
+        sent.update(result=deepcopy(m), status='SENT', actual_from=item['account'],
+                    sent_date=datetime.fromtimestamp(int(m['internal_date']) / 1000, timezone.utc).date().isoformat(),
+                    conversation_state='WAITING_REPLY', delivery_status='not_checked', auto_reply_count=0)
+        state['sent'].append(sent)
+        record.update({'Statut': 'Envoyé', 'Email professionnel': c['to'], 'Contact public': c['name'],
+                       'Email : provenance': c['source'], 'Vague': c['wave']})
+        for field in ('Shopify', 'Site / preuve Shopify', 'Signal Shopify observé'):
+            if field in c.get('verified_record_fields', {}):
+                record[field] = c['verified_record_fields'][field]
+        e.update(phase='SAVED', sent_id=m['id'], thread_id=m['thread_id'], saved_at=now())
+
+    def outbound_receipt(self, item):
+        with mutex(self.local / 'journal.lock'):
+            self.apply_outbound_receipt(read(self.path), item)
+            path = self.local / 'outbound-receipts' / (digest(item['key']) + '.json')
+            if path.exists() and read(path) != item:
+                raise Blocked('Conflicting initial receipt file')
+            atomic(path, item)
+        self.recover()
+        return {'saved': item['key'], 'sent_id': item['message']['id']}
 
     def scan_scope(self):
         state = read(self.path)
@@ -568,6 +657,8 @@ class Store:
         # Keep receipts and force monitor mode. Recovery must succeed before activation.
         with self.transaction() as current:
             # Refuse a rollback of external effects, uncertain intents or business stops.
+            if current['local_runtime'].get('outbound_intents', {}) != restored['local_runtime'].get('outbound_intents', {}):
+                raise Blocked('Backup would change initial outreach intents')
             old_events = restored['local_runtime']['events']
             for key, event in current['local_runtime']['events'].items():
                 if event['phase'] in {'CLAIMED', 'SENDING', 'SAVED'} or event.get('armed_at') or event.get('sent_id'):
@@ -636,7 +727,7 @@ def main():
         p.add_argument('--' + name, required=True)
     for name in ('status','recover','stop','monitor','live','sync','scan-scope','compact-scans'):
         sub.add_parser(name)
-    for name in ('ingest','reclassify','prepare','arm','receipt','scan-page','scan-restart','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')
