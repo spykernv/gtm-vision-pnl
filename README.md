@@ -46,6 +46,8 @@ et les interfaces de fichiers sont décrites dans [le runbook](docs/RUNBOOK.md).
 | local/backups/, local/receipts/ | États récupérables et preuves d'envoi | Non |
 | scripts/, tests/ | Moteur local et simulations | Oui |
 | docs/, examples/ | Procédures génériques et configuration synthétique | Oui |
+| docs/GTM_SYSTEM.md | Correspondance avec le CRM GTM (`C:\dev\gtm-crm`) : chemins, données, règle d'or | Oui |
+| CLAUDE.md | Renvoi vers AGENTS.md pour Claude Code | Oui |
 
 Après un clone, réimporter les trois fichiers privés avec `scripts/gtm.py init
 --journal CHEMIN --workbook CHEMIN --workflow CHEMIN`. Init refuse d'écraser un état
