@@ -491,6 +491,47 @@ class Store:
                 'evidence': deepcopy(item['evidence']), 'added_at': now()})
             return {'rank': rank, 'company': company, 'records': len(state['records'])}
 
+    def manual_reply(self, item):
+        """Records a reply Jonathan sent by hand. Never sends; only takes note of proof."""
+        with self.transaction() as state:
+            rt = state['local_runtime']
+            account, thread = item['account'], item['thread']
+            if not item.get('evidence'):
+                raise Blocked('Evidence of the actual Gmail read required')
+            campaign, _ = self.inspect_thread(state, account, thread)
+            message = next((m for m in thread['messages'] if m['id'] == item['message_id']), None)
+            if not message:
+                raise Blocked('Manual reply missing from the exact thread')
+            engine_sent = {campaign['result']['id']}
+            engine_sent |= {e.get('sent_id') for e in rt['events'].values()}
+            engine_sent |= {i.get('sent_id') for i in rt.get('outbound_intents', {}).values()}
+            if message['id'] in engine_sent:
+                raise Blocked('This message was sent by the engine; it is not a manual reply')
+            h = headers(message)
+            if 'SENT' not in message.get('label_ids', []) or addresses(h.get('from', '')) != {account}:
+                raise Blocked('Manual reply must be a SENT message from the connected account')
+            if campaign['to'].lower() not in addresses(h.get('to', '')):
+                raise Blocked('Manual reply must be addressed to the journaled recipient')
+            initial = next(m for m in thread['messages'] if m['id'] == campaign['result']['id'])
+            if int(message.get('internal_date', 0)) <= int(initial.get('internal_date', 0)):
+                raise Blocked('Manual reply cannot predate the journaled initial send')
+            key = 'manual:' + message['id']
+            replies = rt.setdefault('manual_replies', {})
+            if key in replies:
+                return {'duplicate': True, 'key': key, 'state': campaign['conversation_state']}
+            # A business stop outranks a human reply: recorded, but never downgraded.
+            if campaign['conversation_state'] not in TERMINAL:
+                campaign['conversation_state'] = 'HANDOFF'
+            replies[key] = {'account': account, 'thread_id': thread['id'], 'sent_id': message['id'],
+                            'rfc_message_id': h.get('message-id'), 'to': campaign['to'],
+                            'subject': h.get('subject'), 'body': body_text(message['payload']),
+                            'sent_at': message.get('internal_date'), 'note': item.get('note'),
+                            'evidence': deepcopy(item['evidence']), 'recorded_at': now()}
+            campaign['last_manual_reply_id'] = message['id']
+            campaign['manual_reply_count'] = campaign.get('manual_reply_count', 0) + 1
+            return {'key': key, 'state': campaign['conversation_state'],
+                    'manual_replies': campaign['manual_reply_count']}
+
     def scan_scope(self):
         state = read(self.path)
         eligible = [s for s in state['sent'] if s.get('actual_from') == state['preferred_sender']
@@ -759,7 +800,7 @@ def main():
         p.add_argument('--' + name, required=True)
     for name in ('status','recover','stop','monitor','live','sync','scan-scope','compact-scans'):
         sub.add_parser(name)
-    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','record-add','scan-page','scan-restart','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','manual-reply','record-add','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')

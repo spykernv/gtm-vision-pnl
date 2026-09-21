@@ -1,5 +1,14 @@
 # Planification et consommation
 
+> **Retiré le 22 septembre 2026.** Le réveil horaire n'est plus utilisé : le point de
+> contrôle est lancé à la main (`.claude/skills/gtm-check/SKILL.md`). La consommation
+> n'est plus celle de 720 à 744 réveils mensuels mais celle des contrôles réellement
+> demandés. Le reste de ce document décrit le dispositif planifié tel qu'il a été
+> mesuré et documenté les 19 et 20 septembre ; il est conservé comme trace, et parce
+> qu'il reste exact si la planification est un jour rétablie. L'analyse GitHub Actions
+> plus bas garde toute sa valeur : elle explique pourquoi aucune exécution distante
+> n'a été retenue.
+
 ## Choix retenu
 
 Un réveil horaire natif dans la tâche Desktop, utilisant les plugins de cette tâche

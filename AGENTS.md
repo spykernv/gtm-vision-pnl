@@ -1,12 +1,18 @@
 # GTM Vision PnL
 
-Un seul orchestrateur à la fois. Modèles autorisés, sur décision explicite de Jonathan
-du 21/09/2026 : GPT-6 Astra (tâche ChatGPT Desktop) ou Claude Code (Opus / Fable).
-Jamais un modèle de repli (gpt-reserve ou autre) : un réveil sous un modèle non autorisé
-se bloque sans traiter. Aucun sous-agent, aucun agent CLI, aucun appel API de modèle.
-Vérifier le modèle réel de l'exécution et le consigner dans les preuves ; ne pas
-prétendre qu'un fichier le sélectionne. Deux orchestrateurs ne traitent jamais le
-journal en parallèle : l'autre est mis en pause avant toute prise de relais.
+Un seul orchestrateur à la fois, lancé à la main par Jonathan. Décision du 22/09/2026 :
+plus de réveil planifié ; le point de contrôle est la commande `gtm-check`, exécutée
+quand Jonathan la demande. La tâche horaire ChatGPT est en pause, ses preuves conservées.
+
+Modèles autorisés : Claude Code (Opus / Fable) ou GPT-6 Astra. Jamais un modèle de repli
+(gpt-reserve ou autre) : une exécution sous un modèle non autorisé se bloque sans traiter.
+Aucun sous-agent, aucun agent CLI, aucun appel API de modèle. Vérifier le modèle réel et
+le consigner dans les preuves ; ne pas prétendre qu'un fichier le sélectionne.
+
+Jonathan rédige et envoie lui-même les réponses. L'opérateur lit, classe, propose un
+texte exact, journalise avec `manual-reply`, puis projette vers le CRM. Le connecteur
+Gmail de Claude Code n'expose pas les en-têtes RFC : `prepare` refusera donc toute
+réponse autonome, et c'est voulu.
 
 ## Système à deux dossiers
 
