@@ -45,6 +45,8 @@ le CRM ne conditionne jamais un envoi. `C:\dev\CRM` est un autre projet, hors p�
 ## Écritures
 
 Toutes les transitions passent par scripts/gtm.py ; ne pas éditer le JSON à la main.
+`record-add` n'est exécuté que sur instruction explicite de l'utilisateur, jamais par le
+réveil horaire ; il ajoute un candidat, il ne crée aucun envoi.
 Utiliser le protocole `ingest → prepare → arm → Gmail → receipt` du runbook.
 Un seul propriétaire durable par fil. Un événement SENDING est incertain et ne se
 réessaie pas automatiquement. Chercher une preuve dans Gmail, puis réconcilier.
