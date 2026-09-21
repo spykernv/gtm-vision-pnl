@@ -9,7 +9,7 @@ tâche le demande — l'autre dossier par son chemin absolu ci-dessous.
 | | Moteur GTM — journal | CRM GTM — projection |
 |---|---|---|
 | Chemin | `C:\Users\jonat\.codex\.chatgpt-projects\g-p-6aac1789067c81919abd82be2a92d0d3\gtm-vision-pnl` | `C:\dev\gtm-crm` |
-| Dépôt | `github.com/spykernv/gtm-vision-pnl` (privé) | fork local de `trycompai/crm`, branche `gtm/pruned`, remote `upstream` (ne jamais pousser vers upstream) |
+| Dépôt | `github.com/spykernv/gtm-vision-pnl` (privé) | `github.com/spykernv/gtm-crm` (privé, remote `origin`, branche `gtm/pruned`) ; fork de `trycompai/crm` conservé en remote `upstream` — ne jamais y pousser |
 | Rôle | Registre des **effets externes** : intentions d'envoi, reçus Gmail, preuves Calendly, compteurs de réponses, arrêts | Registre des **prospects** : entreprises, contacts, faits sourcés, pipeline, vues, reporting |
 | Source de vérité | `local/GTM_Design_Partners_Etat.json` (hors Git) | Postgres `gtm_crm` — conteneur Docker `gtm-crm-postgres`, port **5433** |
 | Moteur | `scripts/gtm.py` (Python, bibliothèque standard seule) | API NestJS `:3001` (OpenAPI sur `/openapi.json`) + app Next.js `:3000` |
