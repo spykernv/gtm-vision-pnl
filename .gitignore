@@ -3,6 +3,7 @@
 !/.gitignore
 !/.gitattributes
 !/AGENTS.md
+!/CLAUDE.md
 !/README.md
 !/pyproject.toml
 !/requirements.txt

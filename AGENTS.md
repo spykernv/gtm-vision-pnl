@@ -4,9 +4,17 @@ Un seul orchestrateur dans Desktop, modèle demandé GPT-6 Astra. Aucun sous-age
 aucun agent CLI, aucun appel API de modèle. Ne pas substituer un autre modèle.
 Vérifier le sélecteur de modèle, ne pas prétendre qu'un fichier le sélectionne.
 
+## Système à deux dossiers
+
+Ce dossier est le **moteur** : journal des effets externes et protocole d'envoi.
+Le **CRM GTM** (projection des prospects, jamais décisionnaire) est dans
+`C:\dev\gtm-crm`. Lire `docs/GTM_SYSTEM.md` avant toute action qui touche aux
+deux — il donne les chemins, la correspondance des données et la règle d'or :
+le CRM ne conditionne jamais un envoi. `C:\dev\CRM` est un autre projet, hors périmètre.
+
 ## Démarrage impératif
 
-1. Lire README.md, docs/WORKFLOW.md et docs/RUNBOOK.md.
+1. Lire docs/GTM_SYSTEM.md, README.md, docs/WORKFLOW.md et docs/RUNBOOK.md.
 2. Lire intégralement local/WORKFLOW_SOURCE.md et local/GTM_Design_Partners_Etat.json.
 3. Le JSON local est l'unique source de vérité. `local_runtime` est l'état technique
    actuel ; les anciens champs sont archivés dans `historical_metadata`, sans autorité actuelle.
