@@ -38,15 +38,44 @@ CRM est éteint, le moteur envoie, répond et journalise exactement comme avant.
 | `local_runtime.events` — entrants | `EmailMessage` (`direction INBOUND`) | `inbound_rfc_id` ↔ `rfcMessageId` |
 | `booking_evidence` | `CalendarEvent` + `CalendarAttendee` | e-mail de l'invité |
 
+## Boucle de travail — Jonathan répond à la main (depuis le 21/09/2026)
+
+Jonathan rédige lui-même les réponses aux prospects. Claude lit la boîte, journalise
+ce qui arrive, puis projette. Le CRM est un miroir : on ne l'édite jamais à la main,
+il est reconstruit à chaque passage depuis le journal.
+
+```
+Gmail  ──ingest──▶  journal (vérité)  ──project-from-journal──▶  CRM (miroir)
+```
+
+À chaque point de contrôle :
+
+1. lire les fils journalisés et la recherche de rebonds (connecteur Gmail) ;
+2. `gtm.py ingest` chaque nouvel entrant — déduplication, preuves, machine à états ;
+3. `bun packages/db/scripts/project-from-journal.ts` depuis `C:\dev\gtm-crm`
+   (`--dry-run` pour ne rien écrire, `--journal PATH` pour un autre journal).
+
+La projection est idempotente : elle recrée entreprises, contacts, deals, fils et
+messages à partir du journal, et ne lit jamais le CRM pour en déduire quoi que ce soit.
+Le champ entreprise **« Réponse reçue »** (Aucune / Accusé automatique / Réponse humaine /
+Refus / Rebond) donne l'état de réponse en un coup d'œil ; `Deal.stage` porte l'état
+de conversation du journal.
+
+Limite connue : le journal enregistre les envois **du moteur**, pas les réponses
+manuelles de Jonathan. Tant qu'aucune transition dédiée n'existe, une réponse manuelle
+n'apparaît dans le journal qu'au prochain entrant sur le fil — `inspect_thread` détecte
+alors le message humain et force HANDOFF.
+
 ## État au 21 septembre 2026
 
 - Moteur : mode `live`, 25 envois journalisés, 0 réponse humaine, tâche horaire
   installée (dernier réveil observé 08:50 UTC).
-- CRM : élagué et migré (33 tables, 57 migrations), base **vide**, aucune projection câblée.
-- Non fait, dans cet ordre : (1) première réponse réelle traitée de bout en bout ;
-  (2) serveur MCP devant l'API du CRM ; (3) script de projection journal → CRM ;
-  (4) `AGENTS.md` du moteur agnostique du modèle — GPT-6 Astra aujourd'hui, Claude Code
-  (Opus / Fable) visé ; (5) réveil planifié sous Claude Code.
+- CRM : élagué et migré (33 tables, 57 migrations). Projection câblée le 21/09 :
+  51 entreprises, 26 contacts, 26 deals, 26 fils, 30 messages (révision 59 du journal).
+- Réponses : 1 humaine (test, HANDOFF), 3 accusés automatiques, 22 silences, 0 rebond.
+- Non fait, dans cet ordre : (1) transition pour journaliser une réponse manuelle ;
+  (2) serveur MCP devant l'API du CRM ; (3) réveil planifié sous Claude Code ;
+  (4) projection des faits sourcés vers `CompanyFact`.
 
 ## Commandes
 

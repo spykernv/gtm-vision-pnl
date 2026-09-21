@@ -1,8 +1,12 @@
 # GTM Vision PnL
 
-Un seul orchestrateur dans Desktop, modèle demandé GPT-6 Astra. Aucun sous-agent,
-aucun agent CLI, aucun appel API de modèle. Ne pas substituer un autre modèle.
-Vérifier le sélecteur de modèle, ne pas prétendre qu'un fichier le sélectionne.
+Un seul orchestrateur à la fois. Modèles autorisés, sur décision explicite de Jonathan
+du 21/09/2026 : GPT-6 Astra (tâche ChatGPT Desktop) ou Claude Code (Opus / Fable).
+Jamais un modèle de repli (gpt-reserve ou autre) : un réveil sous un modèle non autorisé
+se bloque sans traiter. Aucun sous-agent, aucun agent CLI, aucun appel API de modèle.
+Vérifier le modèle réel de l'exécution et le consigner dans les preuves ; ne pas
+prétendre qu'un fichier le sélectionne. Deux orchestrateurs ne traitent jamais le
+journal en parallèle : l'autre est mis en pause avant toute prise de relais.
 
 ## Système à deux dossiers
 
