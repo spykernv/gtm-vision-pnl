@@ -82,6 +82,23 @@ l'envoi au journal. `recover` reprend aussi ces reçus sans nouvel email. Tout i
 incertain apparaît dans status, suspend le nettoyage et ne peut pas être réarmé.
 Les fils nouvellement journalisés entrent dans scan-scope sans modifier la tâche.
 
+## Réponse écrite à la main
+
+Jonathan rédige lui-même les réponses. L'opérateur ne les envoie pas ; il en prend acte.
+
+`manual-reply input.json` reçoit account, thread (complet), message_id, evidence et une
+note facultative. Il exige le bon compte connecté, le message réellement présent dans le
+fil journalisé, portant SENT, parti du compte vers le destinataire journalisé, postérieur
+à l'envoi initial. Il refuse un message émis par le moteur lui-même : un envoi de la
+machine ne se maquille pas en geste humain. La déduplication se fait sur l'identifiant
+Gmail. L'enregistrement conserve corps, objet, date et preuve dans
+`local_runtime.manual_replies`, et incrémente `manual_reply_count` sur la campagne.
+
+La conversation passe en HANDOFF, sauf si elle est déjà terminale : un STOPPED reste un
+arrêt, un BOOKED reste une réservation. Le fil quitte alors le périmètre de `scan-scope`.
+Aucune transition ne fait sortir un fil de HANDOFF ; une reprise d'autonomie exigera une
+transition dédiée et auditée, qui n'existe pas encore.
+
 ## Traitement d'un entrant
 
 L'agent lit le corps et les en-têtes puis classe selon WORKFLOW.md. En cas de doute,

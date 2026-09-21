@@ -7,7 +7,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 ALLOWED_ROOT={'.gitignore','.gitattributes','AGENTS.md','CLAUDE.md','README.md','pyproject.toml','requirements.txt','gtm.ps1'}
-ALLOWED_FOLDERS={'docs','examples','scripts','tests'}
+ALLOWED_FOLDERS={'.claude','docs','examples','scripts','tests'}
 
 def git(*args):
     return subprocess.check_output(['git','-c','safe.directory='+ROOT.as_posix(),'-c','core.quotepath=false',*args],cwd=ROOT)

@@ -13,7 +13,7 @@ tâche le demande — l'autre dossier par son chemin absolu ci-dessous.
 | Rôle | Registre des **effets externes** : intentions d'envoi, reçus Gmail, preuves Calendly, compteurs de réponses, arrêts | Registre des **prospects** : entreprises, contacts, faits sourcés, pipeline, vues, reporting |
 | Source de vérité | `local/GTM_Design_Partners_Etat.json` (hors Git) | Postgres `gtm_crm` — conteneur Docker `gtm-crm-postgres`, port **5433** |
 | Moteur | `scripts/gtm.py` (Python, bibliothèque standard seule) | API NestJS `:3001` (OpenAPI sur `/openapi.json`) + app Next.js `:3000` |
-| Exécution agentique | Orchestrateur Desktop, réveil horaire, protocole `ingest → prepare → arm → Gmail → receipt` (réponses) et `outbound-arm → Gmail → outbound-receipt` (envois) | **Aucune.** L'agent embarqué d'origine (eve, Perplexity, context.dev, Slack, tracking, télémétrie) a été retiré le 21/09/2026. Le CRM ne décide de rien et n'appelle aucun service externe. |
+| Exécution agentique | Point de contrôle `gtm-check` lancé à la main par Jonathan. Protocoles `ingest → manual-reply` (réponses écrites par Jonathan) et `outbound-arm → Gmail → outbound-receipt` (envois initiaux, sur instruction explicite) | **Aucune.** L'agent embarqué d'origine (eve, Perplexity, context.dev, Slack, tracking, télémétrie) a été retiré le 21/09/2026. Le CRM ne décide de rien et n'appelle aucun service externe. |
 | Instructions IA | `AGENTS.md` (`CLAUDE.md` = `@AGENTS.md`) | `AGENTS.md` (`CLAUDE.md` = `@AGENTS.md`) |
 | Données privées | `local/` — jamais dans Git | la base Postgres et `.env` — jamais dans Git |
 
@@ -38,7 +38,7 @@ CRM est éteint, le moteur envoie, répond et journalise exactement comme avant.
 | `local_runtime.events` — entrants | `EmailMessage` (`direction INBOUND`) | `inbound_rfc_id` ↔ `rfcMessageId` |
 | `booking_evidence` | `CalendarEvent` + `CalendarAttendee` | e-mail de l'invité |
 
-## Boucle de travail — Jonathan répond à la main (depuis le 21/09/2026)
+## Boucle de travail — commande manuelle (depuis le 22/09/2026)
 
 Jonathan rédige lui-même les réponses aux prospects. Claude lit la boîte, journalise
 ce qui arrive, puis projette. Le CRM est un miroir : on ne l'édite jamais à la main,
@@ -48,11 +48,15 @@ il est reconstruit à chaque passage depuis le journal.
 Gmail  ──ingest──▶  journal (vérité)  ──project-from-journal──▶  CRM (miroir)
 ```
 
-À chaque point de contrôle :
+Il n'y a plus de réveil planifié. Jonathan lance `gtm-check` quand il le décide ; la
+procédure complète est dans `.claude/skills/gtm-check/SKILL.md` :
 
-1. lire les fils journalisés et la recherche de rebonds (connecteur Gmail) ;
-2. `gtm.py ingest` chaque nouvel entrant — déduplication, preuves, machine à états ;
-3. `bun packages/db/scripts/project-from-journal.ts` depuis `C:\dev\gtm-crm`
+1. préflight `status` / `recover` / `scan-scope`, arrêt si un envoi est incertain ;
+2. lecture Gmail du périmètre et des rebonds, toutes les pages ;
+3. `gtm.py ingest` chaque nouvel entrant — déduplication, preuves, machine à états ;
+4. rédaction du texte exact pour ce qui se répond, escalade pour le reste ;
+5. `gtm.py manual-reply` une fois que Jonathan a envoyé ;
+6. `bun packages/db/scripts/project-from-journal.ts` depuis `C:\dev\gtm-crm`
    (`--dry-run` pour ne rien écrire, `--journal PATH` pour un autre journal).
 
 La projection est idempotente : elle recrée entreprises, contacts, deals, fils et
@@ -61,10 +65,16 @@ Le champ entreprise **« Réponse reçue »** (Aucune / Accusé automatique / R�
 Refus / Rebond) donne l'état de réponse en un coup d'œil ; `Deal.stage` porte l'état
 de conversation du journal.
 
-Limite connue : le journal enregistre les envois **du moteur**, pas les réponses
-manuelles de Jonathan. Tant qu'aucune transition dédiée n'existe, une réponse manuelle
-n'apparaît dans le journal qu'au prochain entrant sur le fil — `inspect_thread` détecte
-alors le message humain et force HANDOFF.
+`manual-reply` prend acte d'une réponse écrite par Jonathan : le message doit être
+réellement présent dans le fil journalisé, porter SENT, partir du compte vers le
+destinataire journalisé et être postérieur à l'envoi initial. Un envoi du moteur ne peut
+pas s'y faire passer pour un geste humain. La conversation passe en HANDOFF et quitte le
+périmètre, sauf si elle est déjà terminale.
+
+Limite connue : le connecteur Gmail de Claude Code n'expose pas les en-têtes RFC, donc
+`prepare` refuse toute réponse autonome. Seul le plugin Gmail de ChatGPT les fournit.
+Aucune transition ne fait sortir un fil de HANDOFF ; une reprise d'autonomie en exigera
+une, dédiée et auditée.
 
 ## État au 21 septembre 2026
 
