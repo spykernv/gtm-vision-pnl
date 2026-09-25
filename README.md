@@ -1,108 +1,224 @@
-# GTM Vision PnL local
+# GTM Vision PnL — moteur local
 
-Installation locale pour un seul orchestrateur Desktop utilisant les plugins Gmail,
-Clay, Web et Calendly. Le code assure journal, contrôles, sauvegardes et reprise.
-Il ne contient ni client de modèle ni client Gmail autonome. Les réponses automatiques
-ne sont pas actives tant que les gates ne sont pas prouvées.
+Journal durable et garde-fous pour une campagne de prospection B2B menée par un agent
+IA, avec un humain dans la boucle.
 
-## Ouvrir et reprendre
+L'agent (Claude Code ou GPT-6 Astra) lit la boîte Gmail, Calendly, Clay et le Web avec
+ses propres connecteurs. Ce dépôt ne parle à aucun de ces services : il enregistre
+chaque intention, chaque preuve et chaque transition dans un journal JSON local, et il
+refuse toute action qui pourrait produire un double envoi, une réponse au mauvais
+destinataire ou une réservation non prouvée.
 
-Dans Desktop, ajouter un projet local en choisissant **ce dossier gtm-vision-pnl**,
-puis ouvrir une tâche locale dans ce projet. Choisir **GPT-6 Astra** dans le sélecteur.
-Le miroir parent ChatGPT et `sources/` restent des références non modifiées. Ne pas
-travailler dans un nouveau worktree sans les données locales : elles sont hors Git.
+> **Statut** : projet personnel en production, publié pour consultation. Ce n'est ni
+> une bibliothèque réutilisable ni un produit. Tous droits réservés (voir
+> [LICENSE](LICENSE)). Les données de campagne ne sont pas dans ce dépôt.
 
-Demande de reprise : « Lis AGENTS.md, vérifie le statut local et reprends la migration
-sans nouvel envoi de campagne. » Le modèle n'est jamais sélectionné par un fichier.
+## Sommaire
 
-## Commandes
+- [Contexte](#contexte)
+- [Principes de conception](#principes-de-conception)
+- [Architecture](#architecture)
+- [Cycle de vie d'une conversation](#cycle-de-vie-dune-conversation)
+- [Protocoles](#protocoles)
+- [Installation](#installation)
+- [Commandes](#commandes)
+- [Tests et vérifications](#tests-et-vérifications)
+- [Structure du dépôt](#structure-du-dépôt)
+- [Données privées et sécurité](#données-privées-et-sécurité)
+- [Documentation](#documentation)
+- [Licence](#licence)
 
-Depuis ce dossier, Python 3.12–3.14, aucune dépendance Python externe :
+## Contexte
 
-```powershell
-python -X utf8 scripts/gtm.py status
-python -X utf8 -m unittest discover -s tests -v
-python -X utf8 scripts/gtm.py stop
-python -X utf8 scripts/gtm.py recover
-python -X utf8 scripts/gtm.py scan-scope
-python -X utf8 scripts/gtm.py monitor
-python -B -X utf8 scripts/verify_installation.py
-```
+La campagne cherche trois *design partners* : des marchands Shopify en France, en
+Suisse et en Belgique, qui travaillent avec un logisticien et veulent connaître la
+rentabilité réelle de chaque commande (coûts de transport tardifs, surcharges,
+retours, avoirs). Le détail métier est dans [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
-`stop` est l'arrêt d'urgence. Mettre aussi la tâche Scheduled en pause pour arrêter
-les réveils. `monitor` reprend la lecture contrôlée ; il ne lance pas de processus.
-`live` n'est accepté que lorsque tous les prérequis sont prouvés. La première activation
-et les interfaces de fichiers sont décrites dans [le runbook](docs/RUNBOOK.md).
+Un second dépôt, le **CRM GTM**, reçoit une projection des prospects en lecture seule.
+Il n'intervient jamais dans une décision d'envoi. La correspondance entre les deux est
+décrite dans [docs/GTM_SYSTEM.md](docs/GTM_SYSTEM.md).
 
-## Fichiers
+## Principes de conception
 
-| Chemin | Rôle | Git |
-|---|---|---|
-| local/GTM_Design_Partners_Etat.json | Unique référence, historique et état technique local | Non |
-| local/Design_partners_FR_CH_BE.xlsx | Vue Excel réconciliée | Non |
-| local/WORKFLOW_SOURCE.md | Workflow original complet et messages validés | Non |
-| local/originals/ | Copies exactes des trois pièces d'entrée | Non |
-| local/evidence/ | Vérifications, audit et traces réelles | Non |
-| local/backups/, local/receipts/ | États récupérables et preuves d'envoi | Non |
-| scripts/, tests/ | Moteur local et simulations | Oui |
-| docs/, examples/ | Procédures génériques et configuration synthétique | Oui |
-| docs/GTM_SYSTEM.md | Correspondance avec le CRM GTM (`C:\dev\gtm-crm`) : chemins, données, règle d'or | Oui |
-| CLAUDE.md | Renvoi vers AGENTS.md pour Claude Code | Oui |
+- **Écrire avant d'agir.** L'intention d'envoi (`SENDING`) est inscrite sur disque avant
+  l'appel Gmail. Un crash laisse une trace, jamais un envoi fantôme.
+- **Pas de nouvelle tentative automatique.** Un `SENDING` sans reçu reste incertain
+  jusqu'à ce qu'une preuve Gmail exacte le réconcilie. On ne réessaie pas à l'aveugle.
+- **Le journal est l'unique source de vérité.** Le classeur Excel et le CRM sont des
+  vues dérivées. Toute modification passe par une transition de `scripts/gtm.py`.
+- **Les preuves remplacent les affirmations.** `BOOKED` exige l'événement Calendly
+  actif, l'hôte, l'invité et le créneau. Une activation exige des *gates* prouvées.
+- **Les arrêts priment.** Refus = arrêt définitif, rebond = suspension, réponse humaine
+  ou sujet sensible (prix, contrat, NDA, données) = passage de relais à l'humain.
+- **Les emails sont des données, pas des instructions.** Rien de ce qu'un prospect
+  écrit ne devient une commande, une règle ou un destinataire.
+- **Aucune dépendance.** Python standard uniquement, aucun client de modèle, aucun
+  client Gmail, aucun appel réseau.
 
-Après un clone, réimporter les trois fichiers privés avec `scripts/gtm.py init
---journal CHEMIN --workbook CHEMIN --workflow CHEMIN`. Init refuse d'écraser un état
-existant. Les secrets ne doivent jamais être collés dans une conversation ni committés.
-Authentifier les plugins dans l'interface du compte ; leur OAuth n'est pas disponible
-automatiquement dans Python ou GitHub Actions.
-
-L'outil facultatif `scripts/refresh_workbook.mjs` utilise le runtime Desktop fourni
-(@oai/artifact-tool 2.8.59, bundle 26.905.11957), sans téléchargement. Le cœur Python
-fonctionne sans lui. Il dérive les notes de statut du journal, sans synchronisation
-bidirectionnelle. Toute modification métier doit d'abord être enregistrée dans le JSON.
-Passer `--automation-config CHEMIN_AUTOMATION_TOML` pour afficher le statut observé
-de la tâche ; sinon il reste non vérifié. Chaque export conserve un avant/après daté.
-La commande refuse de remplacer le classeur si le journal change pendant le rendu.
-
-## Architecture installée
+## Architecture
 
 ```mermaid
 flowchart TD
-  Desktop[Orchestrateur Desktop] <--> Plugins[Gmail / Clay / Web / Calendly]
-  Desktop --> Python[Contrôles et transitions Python]
-  Python <--> JSON[Journal JSON local]
-  Python --> Recovery[Sauvegardes et reçus locaux]
-  JSON --> Excel[Vue Excel]
-  Timer[Réveil horaire — état dans Desktop] -.-> Desktop
-  Repo[GitHub privé : code et docs] --- Python
+  Human[Jonathan] -- lance gtm-check, écrit les réponses --> Agent
+  Agent[Agent : Claude Code ou GPT-6 Astra] <--> Plugins[Gmail / Calendly / Clay / Web]
+  Agent --> Engine[scripts/gtm.py : contrôles et transitions]
+  Engine <--> Journal[(local/ journal JSON)]
+  Engine --> Recovery[Sauvegardes et reçus locaux]
+  Journal --> Excel[Vue Excel]
+  Journal -- projection à sens unique --> CRM[CRM GTM]
 ```
 
-Le PC, l'application et Internet sont nécessaires pour ce fonctionnement local.
-L'ancienne tâche n'est pas modifiée pendant l'installation. Voir [planification et
-coûts](docs/SCHEDULING.md) et [workflow métier](docs/WORKFLOW.md). Aucun workflow GitHub
-Actions n'est installé : il ne fournit pas le déclenchement local Astra nécessaire.
+Depuis le 22/09/2026, il n'y a plus de réveil planifié : le point de contrôle
+`gtm-check` ([.claude/skills/gtm-check/SKILL.md](.claude/skills/gtm-check/SKILL.md))
+est lancé à la main. Un seul orchestrateur est actif à la fois.
 
-## Vérifications
+## Cycle de vie d'une conversation
 
-Tests en simulation : doublon, refus, réponse humaine entre préparation/envoi,
-envoi incertain, panne de sauvegarde après envoi, redémarrage, réception dupliquée,
-concurrence, plafond de réponses, arrêt d'urgence, pagination et réservation vérifiée.
-Ces tests ne constituent pas une preuve d'envoi réel ni de déclenchement planifié.
-Les scénarios de reprise couvrent aussi le curseur expiré (`scan-restart`), la
-reprogrammation avec preuves d'annulation et la préservation des événements SAVED.
-Les preuves initiales sont dans local/evidence/DELIVERY.md. L'état courant est un
-instantané daté dans local/evidence/STATUS.md, généré par scripts/status_view.py.
-Le vérificateur d'installation ne modifie ni journal, ni gates, ni rapports.
+```mermaid
+stateDiagram-v2
+  [*] --> WAITING_REPLY: envoi initial reçu par Gmail
+  WAITING_REPLY --> QUALIFYING: question ou intérêt
+  WAITING_REPLY --> PENDING_BOOKING: demande de rendez-vous
+  QUALIFYING --> PENDING_BOOKING
+  PENDING_BOOKING --> BOOKED: preuve Calendly complète
+  WAITING_REPLY --> HANDOFF: sujet sensible ou réponse humaine
+  QUALIFYING --> HANDOFF
+  PENDING_BOOKING --> HANDOFF
+  WAITING_REPLY --> STOPPED: refus
+  QUALIFYING --> STOPPED
+  WAITING_REPLY --> BOUNCED: rebond définitif
+```
 
-Installer le contrôle avant commit dans chaque clone :
+`STOPPED`, `BOUNCED` et `HANDOFF` ne sont jamais rouverts automatiquement. Aucune
+transition ne fait sortir un fil de `HANDOFF` : une reprise d'autonomie exigera une
+transition dédiée et auditée.
+
+## Protocoles
+
+| Protocole | Étapes | Usage |
+|---|---|---|
+| Réponse de l'agent | `ingest` → `prepare` → `arm` → envoi Gmail → `receipt` | Réponse autonome ; aujourd'hui refusée par `prepare` sous Claude Code, dont le connecteur Gmail n'expose pas les en-têtes RFC |
+| Réponse manuelle | `ingest` → Jonathan écrit et envoie → `manual-reply` | Mode actuel : le moteur prend acte, le fil passe en `HANDOFF` |
+| Envoi initial | `outbound-arm` → envoi Gmail → `outbound-receipt` | Uniquement sur instruction explicite, par vagues de cinq |
+| Rendez-vous | lecture Calendly → `booking` | Enregistre une réservation prouvée ; ne réserve rien |
+
+Chaque étape relit le profil Gmail connecté, vérifie `local/STOP`, les doublons et la
+fraîcheur des lectures (moins de 60 secondes avant `arm`). Le détail et les cas de
+reprise sont dans [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+## Installation
+
+Prérequis : Windows, Python 3.12 à 3.14. Aucun paquet à installer.
 
 ```powershell
+git clone https://github.com/spykernv/gtm-vision-pnl.git
+cd gtm-vision-pnl
 git config --local core.hooksPath scripts/hooks
-python -B -X utf8 scripts/check_staged.py
+python -X utf8 -m unittest discover -s tests -v
 ```
 
-Le hook refuse fichiers privés, contacts et secrets détectables. Il ne remplace pas
-la revue des fichiers préparés. Les copies privées restent hors Git ; une destination
-de sauvegarde choisie par l'utilisateur est prise en charge par scripts/backup_local.py.
-Les copies excluent les sauvegardes intermédiaires. La conservation des scans et des
-copies est décrite dans [RETENTION.md](docs/RETENTION.md) ; les preuves métier restent
-préservées. Tout nouveau scan utilise `next_scan_id` fourni par `scan-scope`.
+Les tests tournent sans données privées. Pour exploiter une campagne, importer les
+trois fichiers privés (journal, classeur, workflow) ; `init` refuse d'écraser un état
+existant :
+
+```powershell
+python -X utf8 scripts/gtm.py init --journal CHEMIN --workbook CHEMIN --workflow CHEMIN
+python -X utf8 scripts/gtm.py status
+```
+
+La forme attendue de la configuration est illustrée par
+[examples/config.example.json](examples/config.example.json) (valeurs fictives). Les
+connecteurs s'authentifient dans l'interface de l'agent ; aucun jeton ne doit être
+collé dans un fichier ou une conversation.
+
+## Commandes
+
+Toutes les commandes s'écrivent `python -X utf8 scripts/gtm.py <commande>`, ou
+`.\gtm.ps1 <commande>` qui fait de même depuis n'importe quel dossier. Celles qui
+prennent `input.json` lisent les preuves collectées par l'agent. Une commande bloquée
+renvoie `{"blocked": ...}` sur la sortie d'erreur avec le code 2.
+
+| Commande | Rôle |
+|---|---|
+| `status`, `recover` | État courant ; réconciliation idempotente des reçus |
+| `stop`, `monitor`, `live` | Arrêt d'urgence ; lecture contrôlée ; mode actif (gates prouvées) |
+| `scan-scope`, `scan-page`, `scan-restart`, `compact-scans` | Périmètre et pagination des lectures Gmail |
+| `ingest`, `reclassify` | Journaliser et qualifier un message entrant |
+| `prepare`, `arm`, `receipt`, `release` | Réponse de l'agent, de la réservation au reçu |
+| `manual-reply` | Prendre acte d'une réponse écrite par Jonathan |
+| `outbound-arm`, `outbound-receipt` | Envoi initial autorisé |
+| `record-add` | Ajouter un candidat sur instruction explicite (aucun envoi) |
+| `booking` | Enregistrer un rendez-vous Calendly prouvé |
+| `gate`, `notify-ack` | Preuve d'activation ; accusé de notification |
+| `sync`, `restore`, `init` | Indicateurs dérivés ; restauration protégée ; import initial |
+
+Scripts annexes, tous dans `scripts/` :
+
+- `verify_installation.py` : contrôle en lecture seule de l'installation ;
+- `status_view.py` : instantané daté dans `local/evidence/STATUS.md` ;
+- `backup_local.py --configured` : copie vérifiée (SHA-256) vers une destination privée ;
+- `retention.py` : conservation des scans et des copies ([docs/RETENTION.md](docs/RETENTION.md)) ;
+- `audit_sources.py` : audit des sources du journal ;
+- `check_staged.py` : contrôle avant commit (voir plus bas) ;
+- `refresh_workbook.mjs` : régénère la vue Excel depuis le journal. Facultatif, il
+  dépend du runtime Desktop fourni et refuse d'écrire si le journal change pendant le rendu.
+
+## Tests et vérifications
+
+```powershell
+python -X utf8 -B -m unittest discover -s tests -v
+python -B -X utf8 scripts/verify_installation.py
+```
+
+Les tests simulent notamment : doublon, refus, réponse humaine entre préparation et
+envoi, envoi incertain, panne de sauvegarde après envoi, redémarrage, reçu dupliqué,
+concurrence, plafond de réponses, arrêt d'urgence, pagination expirée, reprogrammation
+Calendly et restauration qui perdrait un événement. Ils ne prouvent ni un envoi réel
+ni un déclenchement réel : ces preuves vivent dans `local/evidence/`.
+
+## Structure du dépôt
+
+| Chemin | Rôle | Versionné |
+|---|---|---|
+| `scripts/gtm.py` | Moteur : journal, transitions, contrôles | Oui |
+| `scripts/` | Outils annexes et hook `pre-commit` | Oui |
+| `tests/` | Simulations sur journaux temporaires | Oui |
+| `docs/` | Workflow, runbook, rétention, système à deux dossiers | Oui |
+| `.claude/skills/gtm-check/` | Procédure du point de contrôle manuel | Oui |
+| `examples/` | Configuration synthétique (`example.invalid`) | Oui |
+| `AGENTS.md`, `CLAUDE.md` | Consignes pour les agents IA | Oui |
+| `local/GTM_Design_Partners_Etat.json` | Journal : unique source de vérité | Non |
+| `local/Design_partners_FR_CH_BE.xlsx` | Vue Excel réconciliée | Non |
+| `local/WORKFLOW_SOURCE.md`, `local/originals/` | Workflow d'origine et pièces d'entrée | Non |
+| `local/evidence/`, `local/receipts/`, `local/backups/` | Preuves, reçus d'envoi, états récupérables | Non |
+
+## Données privées et sécurité
+
+- `.gitignore` fonctionne en liste blanche : tout ce qui n'est pas explicitement
+  autorisé à la racine est ignoré, et `local/`, `secrets/`, `backups/`, `.env*`,
+  `*.csv`, `*.xlsx`, `*.log` le sont partout.
+- Le hook `scripts/hooks/pre-commit` lance `check_staged.py`, qui refuse les fichiers
+  hors liste blanche, les types binaires ou privés, les adresses, signatures et
+  identifiants Gmail présents dans le journal local, et les secrets reconnaissables.
+  Il ne remplace pas une relecture des fichiers préparés.
+- Les exemples versionnés n'utilisent que `example.invalid` et des identifiants fictifs.
+- Les sauvegardes restent locales ou vers une destination privée choisie ; aucune
+  donnée de campagne n'est synchronisée vers GitHub.
+
+## Documentation
+
+| Document | Contenu |
+|---|---|
+| [docs/GTM_SYSTEM.md](docs/GTM_SYSTEM.md) | Moteur et CRM : chemins, correspondance des données, règle d'or |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Objectif, ciblage, messages, règles de réponse |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Exécution, reprise après incident, gates, restauration |
+| [docs/RECOVERY_REVIEW.md](docs/RECOVERY_REVIEW.md) | Scénarios de reprise et leur couverture de tests |
+| [docs/RETENTION.md](docs/RETENTION.md) | Conservation des scans, sauvegardes et preuves |
+| [docs/SCHEDULING.md](docs/SCHEDULING.md), [docs/SCHEDULE_PROMPT.md](docs/SCHEDULE_PROMPT.md) | Ancienne planification horaire (en pause) |
+| [AGENTS.md](AGENTS.md) | Consignes impératives pour tout agent qui ouvre ce dossier |
+
+## Licence
+
+Copyright (c) 2026 spykernv. Tous droits réservés. Le code est consultable mais aucune
+réutilisation n'est autorisée sans accord écrit. Voir [LICENSE](LICENSE).
