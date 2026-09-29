@@ -18,7 +18,36 @@ class EmailTemplateTests(unittest.TestCase):
                     question='Une question ?', pilot_title='Le pilote', pilot_body='Exploratoire.',
                     invitation='Échangeons.', cta_label='Répondre',
                     cta_url='mailto:owner@example.invalid', closing='À bientôt,',
-                    signature='Test Owner\n+00 000', optout='Dites-moi si je dois arrêter.')
+                    signature='Test Owner\n+00 000', optout='Dites-moi si je dois arrêter.',
+                    brand_name='Boutique Test')
+
+    def test_masthead_names_the_brand_and_falls_back_to_the_descriptor(self):
+        markup, _ = render(self.data())
+        self.assertIn('P&amp;L</span></span> <span style="white-space:nowrap;"><span style="color:#9a9e84;">×</span> '
+                      'Boutique Test</span></td>', markup)
+        self.assertIn('MARGE &amp; COÛTS', markup)
+        self.assertNotIn('MASTHEAD_RIGHT', markup)
+        data = self.data()
+        del data['brand_name']
+        with self.assertRaises(ValueError):
+            render(data)
+
+    def test_brand_logo_replaces_the_descriptor_as_an_inline_image(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            logo = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + (356).to_bytes(4, 'big') + (72).to_bytes(4, 'big') + b'synthetic'
+            (root / 'logo.png').write_bytes(logo)
+            data = self.data()
+            data['brand_logo_path'] = 'logo.png'
+            with patch('render_email.ROOT', root), patch('render_email.LOGOS', root):
+                markup, _ = render(data)
+                payload = build_payload(markup, data)
+        self.assertNotIn('MARGE &amp; COÛTS', markup)
+        self.assertIn('width="178" height="36" alt="Boutique Test"', markup)
+        self.assertEqual(body_text(payload), markup)
+        part = payload['parts'][1]
+        self.assertTrue(part['content_id'].startswith('<logo-'))
+        self.assertIn('cid:' + part['content_id'].strip('<>'), markup)
 
     def test_html_roundtrip_through_existing_outbound_protocol(self):
         harness = Harness()

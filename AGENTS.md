@@ -77,6 +77,13 @@ consigne. La variante professionnelle sans P.-S. est archivée dans
 `local/email-design/archive/2026-09-28-professional/`. Les preuves des tests restent
 conservées. Ce choix de forme n'autorise pas une nouvelle vague d'envoi.
 
+Co-marquage demandé le 29/09/2026 : l'en-tête de chaque nouveau mail GTM affiche
+« Vision P&L × Marque » (champ `brand_name`, nom exact de la boutique). Pendant la
+préparation, lancer `scripts/brand_logo.py` sur le site du prospect ; si un logo
+utilisable est retenu, l'ajouter (`brand_logo_path`), sinon garder la mention texte.
+Voir docs/EMAIL_TEMPLATE.md. Envoi via `scripts/gmail_smtp.py` (RUNBOOK) : le connecteur
+Gmail de Claude Code réécrit le HTML et retire les images incorporées.
+
 ## Transitions et journal
 
 Toutes les transitions passent par scripts/gtm.py ; ne pas éditer le JSON à la main.
