@@ -70,6 +70,24 @@ Un candidat absent du journal s'ajoute avec `record-add input.json` : `authoriza
 et vide ; l'ajout est tracé dans `local_runtime.record_additions`. Cette commande ne crée
 aucun envoi et n'est jamais exécutée par le réveil horaire.
 
+Un candidat déjà listé s'enrichit avec `record-update input.json` : `authorization`,
+`evidence`, `rank`, `company` (identiques à la fiche) et `fields` (colonnes du journal,
+sauf `Rang`, `Entreprise`, `Statut` et `Vague`). Une fiche « À qualifier » sans envoi
+journalisé peut changer toutes ces colonnes. Une fiche déjà contactée ne reçoit que
+`Décideur`, `Email décideur` et `Décideur : provenance` : l'adresse qui a reçu l'envoi
+reste la preuve, et le CRM affiche le décideur comme second contact. Les fils de
+`historical_mailbox` restent intouchables. Un email doit être unique et jamais contacté.
+L'avant et l'après sont tracés dans `local_runtime.record_updates`. Aucun envoi n'est créé.
+
+Choix du contact (décision de Jonathan du 29/09/2026) : chercher d'abord une personne
+physique responsable de la boutique (fondateur, dirigeant, puis ops, supply ou finance)
+et son email nominatif (Clay, mentions légales, LinkedIn, presse). À défaut d'email
+nominatif vérifiable, garder le nom du décideur dans `Contact public` et prendre l'adresse
+de la boutique la plus pertinente pour l'offre : hello@, contact@ ou bonjour@ plutôt que
+sav@, support@ ou service-clients@. Écrire `Prénom Nom — rôle` dans `Contact public`,
+dire dans `Email : provenance` s'il s'agit d'un repli, ne jamais deviner une adresse et
+écarter un email sur un domaine étranger à la marque (agence, ancien employeur).
+
 `outbound-arm input.json` reçoit campaign (rank, company, name, to, wave, subject,
 body, source et proof), authorization, profile_email, checked_at et duplicate_check
 (résultat réel sans message ni curseur). Relire profil et recherche juste avant ;

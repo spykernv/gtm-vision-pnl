@@ -18,7 +18,7 @@ class RecordAddTests(unittest.TestCase):
         r=self.store.record_add(self.item); s=read(self.store.path)
         row=next(x for x in s['records'] if x['Rang']==2)
         self.assertEqual((r['records'],row['Statut'],row['Vague'],row['Sélection'],row['Shopify']),(2,'À qualifier',None,'Réserve',None))
-        self.assertEqual(len(row),18)
+        self.assertEqual(len(row),21)
         self.assertEqual(s['local_runtime']['record_additions'][0]['company'],'Test Shop')
     def test_refuses_without_authorization_or_evidence(self):
         for k in ('authorization','evidence'):

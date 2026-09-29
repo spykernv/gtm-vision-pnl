@@ -24,7 +24,10 @@ FINGERPRINT_VERSION = 2
 RECORD_COLUMNS = ('Rang', 'Sélection', 'Entreprise', 'Pays', 'Shopify', 'Logisticien / indice',
                   'Preuve 3PL', 'Statut', 'Angle à tester', 'À vérifier', 'Contact public',
                   'Email professionnel', 'Profil du contact', 'Source logistique / origine',
-                  'Site / preuve Shopify', 'Signal Shopify observé', 'Email : provenance', 'Vague')
+                  'Site / preuve Shopify', 'Signal Shopify observé', 'Email : provenance', 'Vague',
+                  'Décideur', 'Email décideur', 'Décideur : provenance')
+# The only columns an already-contacted row may gain: who decides, never where we wrote.
+DECISION_COLUMNS = ('Décideur', 'Email décideur', 'Décideur : provenance')
 SCAN_HISTORY_LIMIT = 24
 
 def next_scan_id(runtime):
@@ -491,6 +494,41 @@ class Store:
                 'evidence': deepcopy(item['evidence']), 'added_at': now()})
             return {'rank': rank, 'company': company, 'records': len(state['records'])}
 
+    def record_update(self, item):
+        """Explicitly authorized enrichment of a candidate; never a send.
+
+        A never-contacted row may change any unlocked column. A contacted row may only
+        gain its decision-maker, so the address that received the send stays the proof.
+        The historical mailbox threads are followed by hand and stay untouched."""
+        with self.transaction() as state:
+            if not item.get('authorization') or not item.get('evidence'):
+                raise Blocked('Explicit user authorization and evidence required to update a candidate')
+            rank, company, fields = item.get('rank'), (item.get('company') or '').strip(), item.get('fields') or {}
+            record = next((r for r in state['records'] if r['Rang'] == rank), None)
+            if record is None or str(record['Entreprise']).strip().lower() != company.lower():
+                raise Blocked('Rank and company must match one listed candidate')
+            sends = [s for s in state['sent']
+                     if s.get('rank') == rank or str(s.get('company', '')).strip().lower() == company.lower()]
+            if any(s.get('actual_from') != state.get('preferred_sender') for s in sends):
+                raise Blocked('Historical mailbox threads are followed manually')
+            if not fields:
+                raise Blocked('No field to update')
+            contacted = bool(sends) or record.get('Statut') != 'À qualifier'
+            allowed = set(DECISION_COLUMNS) if contacted else set(RECORD_COLUMNS) - {'Rang', 'Entreprise', 'Statut', 'Vague'}
+            refused = set(fields) - allowed
+            if refused:
+                raise Blocked('Fields not updatable: ' + ', '.join(sorted(refused)))
+            for column in ('Email professionnel', 'Email décideur'):
+                email = fields.get(column)
+                if email and (addresses(email) != {email.lower()} or any(s['to'].lower() == email.lower() for s in state['sent'])):
+                    raise Blocked('One exact, never-contacted email required')
+            before = {k: record.get(k) for k in fields}
+            record.update(fields)
+            state['local_runtime'].setdefault('record_updates', []).append({
+                'rank': rank, 'company': record['Entreprise'], 'authorization': item['authorization'],
+                'evidence': deepcopy(item['evidence']), 'before': before, 'after': deepcopy(fields), 'updated_at': now()})
+            return {'rank': rank, 'company': record['Entreprise'], 'updated': sorted(fields)}
+
     def manual_reply(self, item):
         """Records a reply Jonathan sent by hand. Never sends; only takes note of proof."""
         with self.transaction() as state:
@@ -800,7 +838,7 @@ def main():
         p.add_argument('--' + name, required=True)
     for name in ('status','recover','stop','monitor','live','sync','scan-scope','compact-scans'):
         sub.add_parser(name)
-    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','manual-reply','record-add','scan-page','scan-restart','booking','gate'):
+    for name in ('ingest','reclassify','prepare','arm','receipt','outbound-arm','outbound-receipt','manual-reply','record-add','record-update','scan-page','scan-restart','booking','gate'):
         sub.add_parser(name).add_argument('input', type=Path)
     sub.add_parser('notify-ack').add_argument('key')
     sub.add_parser('release').add_argument('key')

@@ -275,6 +275,7 @@ renvoie `{"blocked": ...}` sur la sortie d'erreur avec le code 2.
 | `manual-reply` | Prendre acte d'une réponse écrite par Jonathan |
 | `outbound-arm`, `outbound-receipt` | Envoi initial autorisé |
 | `record-add` | Ajouter un candidat sur instruction explicite (aucun envoi) |
+| `record-update` | Enrichir un candidat, ou ajouter le décideur d'une fiche déjà contactée, sur instruction explicite (aucun envoi) |
 | `booking` | Enregistrer un rendez-vous Calendly prouvé |
 | `gate`, `notify-ack` | Preuve d'activation ; accusé de notification |
 | `sync`, `restore`, `init` | Indicateurs dérivés ; restauration protégée ; import initial |

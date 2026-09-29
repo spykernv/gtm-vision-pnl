@@ -88,7 +88,11 @@ Gmail de Claude Code réécrit le HTML et retire les images incorporées.
 
 Toutes les transitions passent par scripts/gtm.py ; ne pas éditer le JSON à la main.
 `record-add` n'est exécuté que sur instruction explicite de l'utilisateur, jamais par le
-réveil horaire ; il ajoute un candidat, il ne crée aucun envoi.
+réveil horaire ; il ajoute un candidat, il ne crée aucun envoi. `record-update` enrichit
+de même un candidat ; sur une fiche déjà contactée, il n'ajoute que le décideur.
+Ciblage décidé le 29/09/2026 : pour toute recherche ou tout enrichissement, viser d'abord
+une personne physique responsable de la boutique ; à défaut d'email nominatif, l'adresse
+boutique la plus pertinente pour l'offre, jamais le SAV si mieux existe. Détail : RUNBOOK.
 Utiliser le protocole `ingest → prepare → arm → Gmail → receipt` du runbook.
 Un seul propriétaire durable par fil. Un événement SENDING est incertain et ne se
 réessaie pas automatiquement. Chercher une preuve dans Gmail, puis réconcilier.
