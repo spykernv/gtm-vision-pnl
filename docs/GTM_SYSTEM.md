@@ -1,4 +1,10 @@
-# Système GTM Vision PnL — deux dossiers, un flux
+# Système GTM Vision P&L — deux dossiers, un flux
+
+> Mise à jour du 29/09/2026 : interface, API authentifiée, démarrage Windows et
+> projection locale continue sont documentés dans [CRM_ACCESS.md](CRM_ACCESS.md).
+> Les états et listes de travaux datés plus bas décrivent le 21/09, pas le statut courant.
+> Les réponses manuelles, faits et preuves de réservation sont désormais projetés.
+> Le relevé Gmail reste manuel ; aucun réveil agentique n’est réactivé.
 
 Ce fichier est identique dans les deux dépôts. Toute IA qui ouvre l'un des deux
 dossiers le lit en premier, puis l'`AGENTS.md` du dossier courant, puis — si la
@@ -29,9 +35,9 @@ CRM est éteint, le moteur envoie, répond et journalise exactement comme avant.
 
 | Journal (JSON) | CRM (Postgres) | Clé de jointure |
 |---|---|---|
-| `sent[]` — un envoi initial | `Deal` + `Contact` + `Company` | `sent.result.thread_id` ↔ `EmailThread.rootMessageId` / `EmailMessage.gmailMessageId` ; `sent.to` ↔ `Contact.email` ; `sent.company` ↔ `Company.name` ; `sent.rank` |
+| `sent[]` — un envoi initial | `Deal` + `Contact` + `Company` | `sent.result.id` ↔ `EmailThread.rootMessageId` / `EmailMessage.gmailMessageId` ; `sent.to` ↔ `Contact.email` ; `sent.company` ↔ `Company.name` ; `sent.rank` |
 | `sent[].conversation_state` | `Deal.stage` (`DealStage`) | mêmes sept valeurs : `WAITING_REPLY`, `QUALIFYING`, `PENDING_BOOKING`, `HANDOFF`, `BOOKED`, `STOPPED`, `BOUNCED` |
-| `records[]` — les 50 candidats | `Company` + `FieldValue` sur des `FieldDefinition` `agentFilled` | `Entreprise` ↔ `Company.name` ; `Rang` |
+| `records[]` — candidats et test interne | `Company` + `FieldValue` sur des `FieldDefinition` (`agentFilled: false`) | `Entreprise` ↔ `Company.name` ; `Rang` |
 | preuves sourcées (Shopify, 3PL, URL, date, confiance) | `CompanyFact` / `ContactFact` — `band`, `sourceUrl`, `evidence`, `status PROPOSED → APPLIED`, `decidedBy` | `field` + `companyId` / `contactId` |
 | estimé / confirmé / inconnu | `band` = `POSSIBLE` / `PROBABLE` / `VERIFIED` ; inconnu = **pas de ligne** | jamais de points inventés |
 | `STOPPED` / `BOUNCED` | `SuppressedContact` / `SuppressedDomain` | e-mail / domaine |

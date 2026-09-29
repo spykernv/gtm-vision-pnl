@@ -1,6 +1,6 @@
 ---
 name: gtm-check
-description: Point de contrôle GTM Vision PnL, lancé à la main par Jonathan. Lit la boîte Gmail, journalise les nouveaux entrants, rédige les réponses traitables, escalade le reste, met le CRM à jour et rend un rapport. Utiliser quand Jonathan dit « fais le point GTM », « des réponses aujourd'hui ? », « regarde mes mails de prospection », ou demande où en est la campagne.
+description: Point de contrôle GTM Vision P&L, lancé à la main par Jonathan. Lit la boîte Gmail, journalise les nouveaux entrants, rédige les réponses traitables, escalade le reste, met le CRM à jour et rend un rapport. Utiliser quand Jonathan dit « fais le point GTM », « des réponses aujourd'hui ? », « regarde mes mails de prospection », ou demande où en est la campagne.
 ---
 
 # Point de contrôle GTM

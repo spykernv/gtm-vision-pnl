@@ -16,7 +16,7 @@ sans double comptage du transporteur facturant le logisticien. Charges de struct
 dans le résultat mensuel ; trésorerie séparée.
 
 POC : une boutique accompagnée par le référent métier, deux transporteurs, seconde
-devise seulement si utilisée. Reconstituer 8–12 semaines historiques, marge quotidienne
+devise seulement si utilisée. Reconstituer 8 à 12 semaines historiques, marge quotidienne
 et résultat mensuel ; retours, remboursements, surcharges tardives et avoirs inclus.
 Rejouer l'estimation disponible à chaque date. Livrer tableau quotidien, détail par
 commande, écarts et données manquantes. Tester ensuite actualisation quotidienne et

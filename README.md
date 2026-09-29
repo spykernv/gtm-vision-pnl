@@ -1,4 +1,4 @@
-# GTM Vision PnL
+# GTM Vision P&L
 
 Système de prospection B2B mené par un agent IA, avec un humain dans la boucle. Il
 se compose de deux dépôts qui ne se ressemblent pas et ne jouent pas le même rôle :
@@ -211,7 +211,7 @@ bun packages/db/scripts/project-from-journal.ts --journal CHEMIN --owner EMAIL
 | Journal (moteur) | CRM | Clé |
 |---|---|---|
 | `records[]` : les candidats sourcés | `Company` et onze champs projetés (rang, Shopify, logisticien, preuve 3PL, angle à tester, vague…) | nom de l'entreprise |
-| `sent[]` : un envoi initial | `Contact`, `Deal` « pilote Vision PnL », `EmailThread` et message sortant | adresse du destinataire ; identifiant Gmail du message |
+| `sent[]` : un envoi initial | `Contact`, `Deal` « pilote Vision P&L », `EmailThread` et message sortant | adresse du destinataire ; identifiant Gmail du message |
 | `sent[].conversation_state` | `Deal.stage` | mêmes sept valeurs, de `WAITING_REPLY` à `BOUNCED` |
 | `local_runtime.events` : les entrants | `EmailMessage` entrant, avec sa classification | identifiant RFC, sinon identifiant Gmail |
 | entrants et état de conversation | champ « Réponse reçue » : Aucune, Accusé automatique, Réponse humaine, Refus, Rebond | entreprise |

@@ -1,4 +1,4 @@
-# GTM Vision PnL
+# GTM Vision P&L
 
 Un seul orchestrateur à la fois, lancé à la main par Jonathan. Décision du 22/09/2026 :
 plus de réveil planifié ; le point de contrôle est la commande `gtm-check`, exécutée
@@ -52,7 +52,32 @@ le CRM ne conditionne jamais un envoi. `C:\dev\CRM` est un autre projet, hors p�
   par l'utilisateur dans la preuve de bascule ; ne pas présenter cette attestation comme
   une relecture distante. Ne pas réactiver ni modifier l'ancienne tâche.
 
-## Écritures
+## Apparence des mails
+
+Nomenclature demandée le 28/09/2026 : toujours écrire « Vision P&L », y compris
+dans les objets, le logo et la signature, sans point décoratif après P&L. Écrire
+« 8 à 12 semaines ». Les chemins, URLs et preuves historiques gardent leur identité.
+
+Demande du 28/09/2026 : réutiliser le template HTML `examples/email-editorial-v1.html`
+pour les nouveaux mails GTM. Lire `docs/EMAIL_TEMPLATE.md` avant préparation : palette,
+champs personnalisables, génération et correspondance exacte avec le protocole Gmail.
+Les réponses courtes gardent une forme légère et restent envoyées par Jonathan.
+Le template ne donne aucune autorisation d'envoi supplémentaire.
+Le bouton de prise de rendez-vous mène au Calendly sélectionné et vérifié. Aligner
+la durée proposée dans le texte sur sa durée réelle. Numéro de téléphone en Arial,
+avec chiffres alignés ; ne pas lui appliquer Georgia.
+Rôle ajouté sur demande de Jonathan le 28/09/2026 : afficher « CEO vision P&L »
+dans la signature, à la place de l'ancienne ligne de marque seule. Le nom et le
+numéro conservent leur texte exact ; le rôle est une ligne complémentaire.
+
+Choix validé le 28/09/2026 : la version restaurant avec le P.-S. approuvé est le
+modèle par défaut pour les nouveaux mails GTM. Le générateur charge automatiquement
+`local/email-design/active-style.json` ; ne pas remplacer ces champs sans nouvelle
+consigne. La variante professionnelle sans P.-S. est archivée dans
+`local/email-design/archive/2026-09-28-professional/`. Les preuves des tests restent
+conservées. Ce choix de forme n'autorise pas une nouvelle vague d'envoi.
+
+## Transitions et journal
 
 Toutes les transitions passent par scripts/gtm.py ; ne pas éditer le JSON à la main.
 `record-add` n'est exécuté que sur instruction explicite de l'utilisateur, jamais par le
@@ -83,3 +108,12 @@ utile. Dédupliquer ; pas de bilan vide récurrent. Ne pas prétendre à une pus
 local/, secrets, journaux, captures et classeurs sont exclus de Git. Ne jamais forcer
 leur ajout. Les exemples versionnés utilisent uniquement example.invalid et des IDs
 fictifs. Préserver les fichiers sources externes et les originaux locaux.
+
+## Accès CRM local permanent
+
+Installation du 29/09/2026 : lire `docs/CRM_ACCESS.md`. Le point d’entrée durable est
+`scripts/crm.ps1` (`status`, `start`, `sync`, `request`). La clé API est chiffrée pour
+le compte Windows de Jonathan ; ne jamais la lire dans la conversation ni l’exposer.
+Un superviseur Windows maintient uniquement les serveurs et la projection des fichiers
+locaux. Il ne réactive aucun réveil agentique et ne traite pas Gmail/Calendly.
+La fraîcheur du journal reste distincte de la date de projection dans le CRM.

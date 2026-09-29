@@ -43,7 +43,7 @@ def build(root, automation_config=None):
         'Vague_1': {
             'B21': f'Lien sélectionné (à revérifier avant proposition) : {state["calendly"]["selected_event_url"]}',
             'B23': f'{len(state["sent"])} envois conservés ; {len(eligible)} fils admissibles. {old} historiques : {"hors autonomie" if legacy else "à clarifier"}.'}}
-    markdown = f'''# État courant GTM Vision PnL
+    markdown = f'''# État courant GTM Vision P&L
 
 Instantané du {date} — journal révision {rt['revision']}.
 
