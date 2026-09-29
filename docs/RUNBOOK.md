@@ -82,6 +82,26 @@ l'envoi au journal. `recover` reprend aussi ces reçus sans nouvel email. Tout i
 incertain apparaît dans status, suspend le nettoyage et ne peut pas être réarmé.
 Les fils nouvellement journalisés entrent dans scan-scope sans modifier la tâche.
 
+### Canal SMTP exact (décision de Jonathan du 29/09/2026)
+
+Le connecteur Gmail de Claude Code réécrit le HTML : il retire la photo incorporée,
+les styles et les commentaires Outlook. Pour envoyer le MIME préparé à l'identique,
+`scripts/gmail_smtp.py` passe par SMTP/IMAP Gmail avec un mot de passe d'application
+créé par Jonathan, chiffré pour son compte Windows dans
+`local/gmail-runtime/smtp-credential.xml` (Export-Clixml). Jamais lu dans la
+conversation ; révocable dans le compte Google. Pour chaque envoi, un à la fois :
+
+1. `check --to ADRESSE` : connexion IMAP (preuve du compte) et recherche du domaine
+   dans Tous les messages, Spam et Corbeille ; `duplicate_check` doit être vide.
+2. Sous 60 secondes, `gtm.py outbound-arm` avec ce `checked_at` et ce `duplicate_check`.
+3. `send --key --claim --payload` : exige l'intention SENDING, un HTML identique au corps
+   armé et une photo conforme à son Content-ID. Un marqueur `attempt.json` est écrit avant
+   l'appel SMTP et n'est jamais effacé : un second essai est refusé, un échec reste incertain.
+4. `fetch --key --claim` relit le message par son Message-ID (X-GM-MSGID/THRID/LABELS,
+   INTERNALDATE, MIME brut) et écrit `receipt-input.json` ; puis `gtm.py outbound-receipt`.
+
+Preuves dans `local/outbound-smtp/`. Le canal ne crée aucune autorisation d'envoi.
+
 ## Réponse écrite à la main
 
 Jonathan rédige lui-même les réponses. L'opérateur ne les envoie pas ; il en prend acte.
