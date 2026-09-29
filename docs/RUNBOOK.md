@@ -87,6 +87,8 @@ de la boutique la plus pertinente pour l'offre : hello@, contact@ ou bonjour@ pl
 sav@, support@ ou service-clients@. Écrire `Prénom Nom — rôle` dans `Contact public`,
 dire dans `Email : provenance` s'il s'agit d'un repli, ne jamais deviner une adresse et
 écarter un email sur un domaine étranger à la marque (agence, ancien employeur).
+Sans crédits d'enrichissement, suivre docs/RESEARCH.md : registres officiels, pages du
+site et vérification SMTP sans envoi (`scripts/research.py`).
 
 `outbound-arm input.json` reçoit campaign (rank, company, name, to, wave, subject,
 body, source et proof), authorization, profile_email, checked_at et duplicate_check

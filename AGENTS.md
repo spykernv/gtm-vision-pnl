@@ -8,6 +8,10 @@ Modèles autorisés : Claude Code (Opus / Fable) ou GPT-6 Astra. Jamais un modè
 (gpt-reserve ou autre) : une exécution sous un modèle non autorisé se bloque sans traiter.
 Aucun sous-agent, aucun agent CLI, aucun appel API de modèle. Vérifier le modèle réel et
 le consigner dans les preuves ; ne pas prétendre qu'un fichier le sélectionne.
+Seule exception, décidée par Jonathan le 30/09/2026 : l'opération de recherche
+(skill `gtm-research`) peut lancer au plus 2 sous-agents en même temps, chacun sur un
+gros lot de boutiques, en lecture seule (ni `gtm.py`, ni Gmail, ni écriture CRM), et
+jamais l'outil Workflow. Le point de contrôle `gtm-check` reste sans sous-agent.
 
 Jonathan rédige et envoie lui-même les réponses. L'opérateur lit, classe, propose un
 texte exact, journalise avec `manual-reply`, puis projette vers le CRM. Le connecteur
@@ -93,6 +97,8 @@ de même un candidat ; sur une fiche déjà contactée, il n'ajoute que le déci
 Ciblage décidé le 29/09/2026 : pour toute recherche ou tout enrichissement, viser d'abord
 une personne physique responsable de la boutique ; à défaut d'email nominatif, l'adresse
 boutique la plus pertinente pour l'offre, jamais le SAV si mieux existe. Détail : RUNBOOK.
+Sans Clay : docs/RESEARCH.md. Une adresse n'entre que publiée par la personne ou acceptée
+en SMTP sur un domaine qui refuse les inconnues ; un résumé de recherche n'est pas une source.
 Utiliser le protocole `ingest → prepare → arm → Gmail → receipt` du runbook.
 Un seul propriétaire durable par fil. Un événement SENDING est incertain et ne se
 réessaie pas automatiquement. Chercher une preuve dans Gmail, puis réconcilier.
