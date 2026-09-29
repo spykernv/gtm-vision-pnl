@@ -23,7 +23,12 @@ idempotente et ne valide aucun scan. Les anciennes captures restent des preuves 
 
 Chaque mutation garde une copie locale précédente. La copie externe contient le
 journal courant, les reçus, originaux, fichiers de travail et preuves, mais exclut
-`local/backups/`. Chaque instantané externe reste autonome : aucun lien matériel,
+`local/backups/` et les fichiers que le superviseur CRM réécrit en continu dans
+`local/crm-runtime/` : journaux (`*.log`, `*.log.previous`), `processes.json`,
+`last-*.json`, son drapeau `STOP` et les `*.tmp`. Ce sont des diagnostics : les copier
+faisait échouer la vérification dès que le superviseur écrivait pendant la copie, et
+retenait à tort les anciens instantanés comme preuves modifiées. `credential.xml` et les
+autres fichiers de ce dossier restent sauvegardés. Chaque instantané externe reste autonome : aucun lien matériel,
 aucune dépendance à un autre instantané pour le récupérer.
 
 Après une nouvelle copie vérifiée par SHA-256, et sous le verrou du journal, le

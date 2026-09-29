@@ -15,10 +15,12 @@ import uuid
 
 sys.dont_write_bytecode = True
 from gtm import ROOT, Blocked, Store, atomic, digest, mutex, read
-from retention import prune_local, prune_snapshots, LOCAL_RECENT, REMOTE_RECENT, DAILY, MONTHLY
+from retention import is_volatile, prune_local, prune_snapshots, VOLATILE, LOCAL_RECENT, REMOTE_RECENT, DAILY, MONTHLY
 
 
-def inventory(directory, exclude_backups=False):
+def inventory(directory, exclude_backups=False, skip_volatile=False):
+    """Hash every file. The live source skips the supervisor's volatile files; a snapshot
+    is always checked in full against its own manifest."""
     directory = Path(directory)
     if directory.is_symlink() or directory.is_junction():
         raise Blocked('Backup refuses a linked root')
@@ -32,9 +34,10 @@ def inventory(directory, exclude_backups=False):
             dirs[:] = [d for d in dirs if d != 'backups']
         for name in files:
             p = Path(base) / name
-            if p == directory / 'journal.lock':
+            rel = p.relative_to(directory).as_posix()
+            if p == directory / 'journal.lock' or (skip_volatile and is_volatile(rel)):
                 continue
-            result[p.relative_to(directory).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()
+            result[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
     return result
 
 
@@ -47,7 +50,7 @@ def backup(root, destination):
     with mutex(source / 'journal.lock'):
         state = read(store.path)
         revision = state['local_runtime']['revision']
-        files = inventory(source, exclude_backups=True)
+        files = inventory(source, exclude_backups=True, skip_volatile=True)
         if 'GTM_Design_Partners_Etat.json' not in files:
             raise Blocked('Canonical journal missing')
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -59,12 +62,13 @@ def backup(root, destination):
             dest = partial / 'local' / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / rel, dest)
-        if inventory(partial / 'local') != files or inventory(source, exclude_backups=True) != files:
+        if inventory(partial / 'local') != files or inventory(source, exclude_backups=True, skip_volatile=True) != files:
             raise Blocked('Backup verification failed or source changed; partial copy retained')
         manifest = {'created_at': datetime.now(timezone.utc).isoformat(),
                     'retention_schema': 1,
                     'installation_id': digest({'account':state['preferred_sender'], 'sources':state['local_runtime'].get('source_hashes', {})}),
                     'excluded_directories': ['backups'],
+                    'excluded_volatile_files': VOLATILE.pattern,
                     'retention_policy': {'local_recent':LOCAL_RECENT, 'snapshot_recent':REMOTE_RECENT, 'daily':DAILY, 'monthly':MONTHLY},
                     'revision': revision, 'file_count': len(files), 'sha256': files,
                     'verified_local_copy': True, 'cloud_sync_verified': False,

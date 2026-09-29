@@ -11,6 +11,16 @@ REMOTE_RECENT = 24
 DAILY = 30
 MONTHLY = 12
 
+# What the Windows CRM supervisor rewrites every few seconds under local/crm-runtime:
+# logs and their rotation, process and sync state, its own stop flag, temporary files.
+# Diagnostics, not recovery data. Copying them made every backup race the supervisor
+# and pinned every older snapshot as "changed evidence". credential.xml stays included.
+VOLATILE = re.compile(r'^crm-runtime/(?:[^/]+\.log(?:\.previous)?|processes\.json|last-[a-z-]+\.json|STOP|[^/]+\.tmp)$')
+
+
+def is_volatile(rel):
+    return bool(VOLATILE.match(rel))
+
 
 def retained(records, recent, daily=DAILY, monthly=MONTHLY):
     """Union: newest N, newest per last D distinct days, newest per M months."""
@@ -88,7 +98,8 @@ def prune_snapshots(destination, fresh, manifest, inventory):
         old = manifests[path]
         # Any missing or changed immutable evidence pins the older snapshot.
         mutable = {'GTM_Design_Partners_Etat.json', 'evidence/STATUS.md', 'STOP'}
-        if any(rel not in mutable and manifest['sha256'].get(rel) != sha for rel, sha in old['sha256'].items()):
+        if any(rel not in mutable and not is_volatile(rel) and manifest['sha256'].get(rel) != sha
+               for rel, sha in old['sha256'].items()):
             protected += 1
             continue
         if inventory(path / 'local') != old['sha256']:

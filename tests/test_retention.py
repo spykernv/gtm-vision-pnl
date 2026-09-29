@@ -168,6 +168,43 @@ class RetentionTests(unittest.TestCase):
             self.assertEqual(copied['sent'],before['sent'])
             self.assertEqual(copied['local_runtime']['events'],before['local_runtime']['events'])
 
+    def supervisor_files(self):
+        runtime=self.store.local/'crm-runtime';runtime.mkdir(parents=True,exist_ok=True)
+        (runtime/'credential.xml').write_text('<encrypted/>')
+        for name in ('api.out.log','supervisor.log','processes.json','last-sync.json'):
+            (runtime/name).write_text('0')
+        return runtime
+
+    def test_supervisor_writing_during_the_copy_does_not_fail_the_backup(self):
+        runtime=self.supervisor_files()
+        copy2=shutil.copy2
+        def supervisor_meanwhile(src,dst):
+            copy2(src,dst)
+            with open(runtime/'api.out.log','a') as log: log.write('request\n')
+            (runtime/'last-sync.json').write_text(now())
+            (runtime/'processes.json.tmp').write_text('{}')
+        with tempfile.TemporaryDirectory() as dest:
+            with patch('backup_local.shutil.copy2',side_effect=supervisor_meanwhile):
+                result=backup(self.store.root,dest)
+            files=read(Path(result['backup'])/'manifest.json')['sha256']
+            self.assertIn('crm-runtime/credential.xml',files)
+            self.assertFalse([p for p in files if p.endswith(('.log','.tmp')) or p.endswith(('processes.json','last-sync.json'))])
+            self.assertFalse((Path(result['backup'])/'local'/'crm-runtime'/'api.out.log').exists())
+
+    def test_old_snapshot_differing_only_by_supervisor_files_is_not_pinned(self):
+        self.supervisor_files()
+        with tempfile.TemporaryDirectory() as dest, patch('retention.REMOTE_RECENT',2):
+            first=backup(self.store.root,dest)
+            # Copies made before this fix still carry the supervisor's logs and state.
+            snap=Path(first['backup']);manifest=read(snap/'manifest.json')
+            (snap/'local'/'crm-runtime'/'api.out.log').write_text('old log')
+            manifest['sha256']['crm-runtime/api.out.log']=inventory(snap/'local')['crm-runtime/api.out.log']
+            atomic(snap/'manifest.json',manifest)
+            backup(self.store.root,dest)
+            result=backup(self.store.root,dest)
+            self.assertEqual(result['retention'],{'snapshots_removed':1,'snapshots_pinned':0,'local_backups_removed':0})
+            self.assertFalse(snap.exists())
+
     def test_path_escape_and_linked_root_refused(self):
         with self.assertRaises(Blocked): checked_child(self.store.root,self.store.local)
         with patch.object(Path,'is_junction',return_value=True):

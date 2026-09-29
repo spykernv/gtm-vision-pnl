@@ -56,7 +56,8 @@ lance le superviseur, en fenêtre cachée, à l'ouverture de session. Le supervi
 
 Un verrou empêche deux superviseurs simultanés. Les identifiants et dates de lancement
 permettent d'arrêter uniquement les processus appartenant à ce CRM. Les journaux restent
-locaux et tournent à 2 Mo. Une erreur de synchronisation n'altère pas le journal GTM ;
+locaux et tournent à 2 Mo. Ils ne partent pas dans la sauvegarde externe, pas plus que
+`processes.json` et `last-*.json` (voir docs/RETENTION.md) ; `credential.xml` y reste. Une erreur de synchronisation n'altère pas le journal GTM ;
 le superviseur conserve l'erreur et réessaie au passage suivant.
 
 Ce service maintient le CRM et sa projection. Il ne lance aucun agent, aucun modèle,
