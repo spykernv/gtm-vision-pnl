@@ -9,7 +9,7 @@ Aucun envoi, aucune lecture Gmail : cette opération ne touche que le journal (p
 `gtm.py`) et le CRM (par projection). Un seul acteur à la fois : ne pas la lancer pendant
 un `gtm-check`. Lire `docs/RESEARCH.md` (règles de preuve et outils) avant de commencer.
 
-Chemins : moteur `racine de ce dépôt`,
+Chemins : moteur = racine de ce dépôt (le dossier ouvert dans Claude Code),
 CRM `C:\dev\gtm-crm`. Dossier de travail du jour : `local/research/AAAA-MM-JJ/` (hors Git).
 
 ## Économie du forfait — à respecter pendant toute l'opération

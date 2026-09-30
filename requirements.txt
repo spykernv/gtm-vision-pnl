@@ -1,1 +1,3 @@
-# Python standard library only. No pip installation, paid API, or background CLI agent.
+# The engine (scripts/gtm.py) uses the Python standard library only.
+# Pillow is needed by scripts/brand_logo.py to trim and resize the merchant logo.
+Pillow>=10

@@ -11,7 +11,7 @@ procédure. Ne jamais la lancer en parallèle d'une tâche ChatGPT active.
 **Tu ne rédiges pas les envois, tu ne les envoies pas.** Jonathan écrit et clique.
 Toi : tu lis tout, tu classes, tu proposes un texte exact, tu journalises, tu projettes.
 
-Chemins : moteur `racine de ce dépôt`,
+Chemins : moteur = racine de ce dépôt (le dossier ouvert dans Claude Code),
 CRM `C:\dev\gtm-crm`. Lire `docs/GTM_SYSTEM.md` si le lien entre les deux n'est pas clair.
 
 ## 1. Préflight — ne rien faire si l'état est douteux

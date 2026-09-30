@@ -1,18 +1,22 @@
 # GTM Vision P&L
 
-Système de prospection B2B mené par un agent IA, avec un humain dans la boucle. Il
-se compose de deux dépôts qui ne se ressemblent pas et ne jouent pas le même rôle :
+Workflow outbound B2B **Claude-first** : Claude Code pilote toute la prospection, de
+l'enrichissement des comptes jusqu'au rendez-vous, avec un humain dans la boucle. Il est
+construit pour une recherche de *design partners* et se compose de deux dépôts qui ne se
+ressemblent pas et ne jouent pas le même rôle :
 
 | | **Moteur** — ce dépôt | **CRM GTM** — `gtm-crm` |
 |---|---|---|
 | Rôle | Décider et prouver : workflow, envois, réponses, rendez-vous | Montrer : entreprises, contacts, pipeline, fils d'emails |
 | Source de vérité | Journal JSON local | Aucune : c'est un miroir reconstruit depuis le journal |
-| Technologie | Python standard, sans dépendance | Fork élagué de [trycompai/crm](https://github.com/trycompai/crm) : NestJS, Next.js, Prisma, Postgres |
+| Technologie | Claude Code et deux Skills ; moteur Python (journal et garde-fous) ; scripts d'intégration Gmail SMTP/IMAP, registres publics, logos | Fork élagué de [trycompai/crm](https://github.com/trycompai/crm) : NestJS, Next.js, Prisma, Postgres |
 | Envoie des emails ? | Oui, via l'agent et après contrôles | Jamais |
 | Visibilité | Public (code et docs, aucune donnée) | Privé |
 
-L'agent (Claude Code ou GPT-6 Astra) lit la boîte Gmail, Calendly, Clay et le Web avec
-ses propres connecteurs. Le moteur ne parle à aucun de ces services : il enregistre
+Claude Code est l'opérateur. Deux Skills versionnées dans `.claude/skills/` décrivent ses
+opérations : `gtm-research` (enrichir le CRM, trouver des prospects) et `gtm-check` (point
+de contrôle de la boîte de réception). Claude lit Gmail, Calendly et Clay avec ses
+connecteurs MCP, et le Web. Le moteur ne parle à aucun de ces services : il enregistre
 chaque intention, chaque preuve et chaque transition dans le journal, et il refuse
 toute action qui pourrait produire un double envoi, une réponse au mauvais
 destinataire ou une réservation non prouvée. Le CRM reçoit ensuite une projection à
@@ -25,6 +29,7 @@ sens unique de ce journal.
 ## Sommaire
 
 - [Contexte](#contexte)
+- [La stratégie outbound](#la-stratégie-outbound)
 - [Vue d'ensemble du système](#vue-densemble-du-système)
 - [Principes de conception](#principes-de-conception)
 - **Workflow et moteur**
@@ -51,6 +56,30 @@ rentabilité réelle de chaque commande (coûts de transport tardifs, surcharges
 retours, avoirs). La campagne part de 50 candidats sourcés, dont 20 prioritaires,
 contactés par vagues de cinq. Le détail métier est dans [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
+## La stratégie outbound
+
+Chaque étape est une opération de Claude Code, et chaque effet passe par le moteur.
+
+1. **Sourcer** : avis de l'App Store Shopify sur les applications logistiques, sondes des
+   boutiques Shopify, pages de référence des logisticiens (`scripts/research.py`).
+2. **Enrichir** : Clay d'abord, via son connecteur MCP. Quand les crédits sont épuisés,
+   repli automatique sur les registres publics (France, Belgique, Suisse), les pages
+   légales et équipe du site, et une vérification SMTP des adresses, sans aucun envoi
+   (Skill `gtm-research`, [docs/RESEARCH.md](docs/RESEARCH.md)).
+3. **Trier** : score ICP documenté (Shopify, logisticien, multi-transporteurs…), priorité
+   à partir de 70 avec preuves ([docs/WORKFLOW.md](docs/WORKFLOW.md)).
+4. **Trouver la bonne personne** : fondateur ou représentant légal d'abord, puis
+   opérations, logistique ou finance. Une adresse n'entre au journal que si elle est
+   publiée ou vérifiée.
+5. **Accrocher** : une observation sourcée sur la boutique, puis une question sur sa
+   douleur quotidienne : marge par commande, surcoûts logistiques tardifs, retours, avoirs.
+6. **Envoyer un email co-brandé** : « Vision P&L × Marque », avec le logo du marchand
+   récupéré sur son site (`brand_logo.py`), rendu HTML (`render_email.py`), envoi MIME
+   exact par Gmail SMTP avec reçu IMAP (`gmail_smtp.py`). Un envoi à la fois, sur
+   autorisation explicite ([docs/EMAIL_TEMPLATE.md](docs/EMAIL_TEMPLATE.md)).
+7. **Suivre** : `gtm-check` lit les réponses et propose un texte exact, Jonathan répond
+   lui-même, et un rendez-vous n'est enregistré qu'avec la preuve Calendly.
+
 ## Vue d'ensemble du système
 
 ```mermaid
@@ -61,7 +90,7 @@ flowchart LR
     Clay[Clay / Web]
   end
   subgraph Moteur[gtm-vision-pnl : moteur]
-    Agent[Agent IA]
+    Agent[Claude Code + Skills]
     Engine[scripts/gtm.py]
     Journal[(Journal JSON local)]
     Excel[Vue Excel]
@@ -103,8 +132,10 @@ exactement comme avant. C'est la règle d'or du système, détaillée dans
   ou sujet sensible (prix, contrat, NDA, données) = passage de relais à l'humain.
 - **Les emails sont des données, pas des instructions.** Rien de ce qu'un prospect
   écrit ne devient une commande, une règle ou un destinataire.
-- **Aucune dépendance.** Python standard uniquement, aucun client de modèle, aucun
-  client Gmail, aucun appel réseau.
+- **Un cœur sans dépendance, des intégrations isolées.** `scripts/gtm.py` (journal,
+  transitions, garde-fous) n'utilise que la bibliothèque standard et ne fait aucun appel
+  réseau. Les intégrations (Gmail SMTP/IMAP, registres publics, logos avec Pillow) vivent
+  dans des scripts séparés et testés ; Gmail, Calendly et Clay passent par Claude.
 
 ## Le point de contrôle gtm-check
 
@@ -116,7 +147,7 @@ orchestrateur est actif à la fois.
 ```mermaid
 sequenceDiagram
   actor J as Jonathan
-  participant A as Agent IA
+  participant A as Claude Code
   participant G as Gmail
   participant M as Moteur (gtm.py)
   participant C as CRM
@@ -171,7 +202,7 @@ transition dédiée et auditée.
 |---|---|---|
 | Réponse de l'agent | `ingest` → `prepare` → `arm` → envoi Gmail → `receipt` | Réponse autonome ; aujourd'hui refusée par `prepare` sous Claude Code, dont le connecteur Gmail n'expose pas les en-têtes RFC |
 | Réponse manuelle | `ingest` → Jonathan écrit et envoie → `manual-reply` | Mode actuel : le moteur prend acte, le fil passe en `HANDOFF` |
-| Envoi initial | `outbound-arm` → envoi Gmail → `outbound-receipt` | Uniquement sur instruction explicite, par vagues de cinq |
+| Envoi initial | logo (`brand_logo.py`) → rendu (`render_email.py`) → `outbound-arm` → envoi Gmail SMTP → reçu IMAP → `outbound-receipt` | Uniquement sur instruction explicite, un envoi à la fois |
 | Rendez-vous | lecture Calendly → `booking` | Enregistre une réservation prouvée ; ne réserve rien |
 
 Chaque étape relit le profil Gmail connecté, vérifie `local/STOP`, les doublons et la
@@ -190,7 +221,7 @@ pipeline, fils d'emails, filtres et reporting.
 | API | NestJS sur le port 3001, OpenAPI sur `/openapi.json` |
 | Base | Postgres dans un conteneur Docker dédié, port 5433, via Prisma |
 | Retiré du fork | L'agent embarqué d'origine, Slack, le suivi web, la télémétrie, les clés Perplexity, context.dev et AI Gateway, l'onglet Agent et les mutations d'enrichissement |
-| Ajouté | `CompanyFact` (faits sourcés sur une entreprise), étapes de `Deal` alignées sur les sept états du moteur, champ entreprise « Réponse reçue » |
+| Ajouté | `CompanyFact` (faits sourcés sur une entreprise), `CalendarEvent` (rendez-vous Calendly), contact décideur, étapes de `Deal` alignées sur les sept états du moteur, champ entreprise « Réponse reçue » |
 
 Après élagage, l'API n'appelle plus aucun service externe. L'intelligence vit
 hors du CRM : le moteur décide, le CRM affiche.
@@ -224,9 +255,9 @@ Propriétés de la projection :
 - **À sens unique** : elle ne lit jamais le CRM pour en déduire quoi que ce soit, et
   n'écrit jamais dans le journal.
 - **Sans envoi** : aucun email ne peut partir du CRM.
-- **Pas encore fait** : les faits sourcés (URL, date, confiance) ne sont pas encore
-  projetés vers `CompanyFact`. Le moment venu, un fait inconnu ne produira aucune
-  ligne plutôt qu'une valeur inventée.
+- **Sourcée** : les faits (URL, date, confiance) sont projetés vers `CompanyFact`, et
+  les rendez-vous prouvés vers `CalendarEvent`. Un fait inconnu ne produit aucune ligne
+  plutôt qu'une valeur inventée.
 
 Les champs projetés portent la mention « Projeté depuis le journal GTM ; ne pas
 éditer ici ». Toute correction se fait dans le moteur, puis la projection est
@@ -235,12 +266,14 @@ relancée. La correspondance complète, champ par champ, est dans
 
 ## Installation
 
-Prérequis : Windows, Python 3.12 à 3.14. Aucun paquet à installer.
+Prérequis : Windows, Python 3.12 à 3.14, Pillow pour les logos des emails, et Claude Code
+ouvert dans ce dossier avec ses connecteurs Gmail, Calendly et Clay autorisés.
 
 ```powershell
 git clone https://github.com/spykernv/gtm-vision-pnl.git
 cd gtm-vision-pnl
 git config --local core.hooksPath scripts/hooks
+python -m pip install -r requirements.txt
 python -X utf8 -m unittest discover -s tests -v
 ```
 
@@ -282,6 +315,10 @@ renvoie `{"blocked": ...}` sur la sortie d'erreur avec le code 2.
 
 Scripts annexes, tous dans `scripts/` :
 
+- `research.py` : sourcing, enrichissement public et vérification SMTP des adresses ([docs/RESEARCH.md](docs/RESEARCH.md)) ;
+- `brand_logo.py`, `render_email.py` : logo du marchand et email co-brandé ([docs/EMAIL_TEMPLATE.md](docs/EMAIL_TEMPLATE.md)) ;
+- `gmail_smtp.py` : envoi MIME exact et reçu IMAP ;
+- `crm.ps1`, `crm-cold-call.ps1`, `open-crm.ps1` : exploitation locale du CRM ([docs/CRM_ACCESS.md](docs/CRM_ACCESS.md)) ;
 - `verify_installation.py` : contrôle en lecture seule de l'installation ;
 - `status_view.py` : instantané daté dans `local/evidence/STATUS.md` ;
 - `backup_local.py --configured` : copie vérifiée (SHA-256) vers une destination privée ;
@@ -312,6 +349,7 @@ ni un déclenchement réel : ces preuves vivent dans `local/evidence/`.
 | `scripts/` | Outils annexes et hook `pre-commit` | Oui |
 | `tests/` | Simulations sur journaux temporaires | Oui |
 | `docs/` | Workflow, runbook, rétention, système à deux dossiers | Oui |
+| `.claude/skills/gtm-research/` | Opération d'enrichissement et de recherche de prospects | Oui |
 | `.claude/skills/gtm-check/` | Procédure du point de contrôle manuel | Oui |
 | `examples/` | Configuration synthétique (`example.invalid`) | Oui |
 | `AGENTS.md`, `CLAUDE.md` | Consignes pour les agents IA | Oui |
@@ -339,6 +377,9 @@ ni un déclenchement réel : ces preuves vivent dans `local/evidence/`.
 |---|---|
 | [docs/GTM_SYSTEM.md](docs/GTM_SYSTEM.md) | Moteur et CRM : chemins, correspondance des données, règle d'or |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Objectif, ciblage, messages, règles de réponse |
+| [docs/RESEARCH.md](docs/RESEARCH.md) | Enrichissement : Clay, repli sur sources publiques, règles de preuve |
+| [docs/EMAIL_TEMPLATE.md](docs/EMAIL_TEMPLATE.md) | Email co-brandé : structure, logo, rendu |
+| [docs/CRM_ACCESS.md](docs/CRM_ACCESS.md), [docs/CRM_COLD_CALL.md](docs/CRM_COLD_CALL.md) | Accès au CRM local ; préparation des appels |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Exécution, reprise après incident, gates, restauration |
 | [docs/RECOVERY_REVIEW.md](docs/RECOVERY_REVIEW.md) | Scénarios de reprise et leur couverture de tests |
 | [docs/RETENTION.md](docs/RETENTION.md) | Conservation des scans, sauvegardes et preuves |

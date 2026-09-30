@@ -14,7 +14,7 @@ tâche le demande — l'autre dossier par son chemin absolu ci-dessous.
 
 | | Moteur GTM — journal | CRM GTM — projection |
 |---|---|---|
-| Chemin | `racine de ce dépôt` | `C:\dev\gtm-crm` |
+| Chemin | racine de ce dépôt (chemin local, hors Git) | `C:\dev\gtm-crm` |
 | Dépôt | `github.com/spykernv/gtm-vision-pnl` (public : code et docs seulement, aucune donnée prospect) | `github.com/spykernv/gtm-crm` (privé, remote `origin`, branche `gtm/pruned`) ; fork de `trycompai/crm` conservé en remote `upstream` — ne jamais y pousser |
 | Rôle | Registre des **effets externes** : intentions d'envoi, reçus Gmail, preuves Calendly, compteurs de réponses, arrêts | Registre des **prospects** : entreprises, contacts, faits sourcés, pipeline, vues, reporting |
 | Source de vérité | `local/GTM_Design_Partners_Etat.json` (hors Git) | Postgres `gtm_crm` — conteneur Docker `gtm-crm-postgres`, port **5433** |
