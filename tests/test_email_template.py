@@ -109,6 +109,16 @@ class EmailTemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             render(data)
 
+    def test_writing_rules_of_30_09(self):
+        markup, _ = render(self.data())
+        self.assertIn('>CEO Vision P&amp;L</p>', markup)
+        self.assertNotIn('—', markup)
+        for key in ('subject', 'observation', 'invitation', 'signature'):
+            data = self.data()
+            data[key] = data[key] + ' — suite'
+            with self.assertRaises(ValueError):
+                render(data)
+
 
 if __name__ == '__main__':
     unittest.main()

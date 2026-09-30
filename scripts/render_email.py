@@ -13,6 +13,7 @@ TEMPLATE = ROOT / 'examples' / 'email-editorial-v1.html'
 ASSETS = ROOT / 'local' / 'email-design' / 'assets'
 LOGOS = ROOT / 'local' / 'email-design' / 'logos'
 ACTIVE_STYLE = ROOT / 'local' / 'email-design' / 'active-style.json'
+EM_DASH = '—'  # never in an email: subject, text, signature or template
 
 
 def apply_active_style(data):
@@ -92,6 +93,8 @@ def render(data):
     for key, value in data.items():
         if '{{' in value or '}}' in value or '\x00' in value:
             raise ValueError('Unresolved placeholder or invalid character in ' + key)
+        if EM_DASH in value:
+            raise ValueError('Em dash « — » forbidden in emails (Jonathan, 30/09/2026): ' + key)
     url = urlsplit(data['cta_url'])
     if url.scheme not in {'https', 'mailto'} or not url.path or (url.scheme == 'https' and (not url.hostname or url.username or url.password)):
         raise ValueError('CTA must be an explicit HTTPS or mailto URL')
@@ -131,6 +134,8 @@ def render(data):
     text += '\n\n' + '\n\n'.join(data[k] for k in ['closing', 'signature', 'optout']) + '\n'
     if ps:
         text += '\n' + ps + '\n'
+    if EM_DASH in markup or EM_DASH in text:
+        raise ValueError('Em dash « — » forbidden in emails (Jonathan, 30/09/2026): template or style')
     return markup, text
 
 

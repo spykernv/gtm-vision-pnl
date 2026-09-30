@@ -69,6 +69,7 @@ donner à Jonathan, prête à coller.
 - demande de rendez-vous : le lien Calendly **sélectionné dans le journal**, après avoir
   revérifié qu'il est actif et sa durée réelle ; jamais l'ancien événement EPF ;
 - signature exacte du journal, téléphone compris ;
+- jamais de tiret long « — » dans la réponse (règle du 30/09/2026) ;
 - ni prix, ni gratuité, ni délai, ni promesse produit.
 
 ## 5. Ce qui remonte à Jonathan

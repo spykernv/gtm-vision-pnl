@@ -54,9 +54,44 @@ class OutboundTests(unittest.TestCase):
         before=self.store.path.read_bytes()
         with self.assertRaises(Blocked):self.store.restore(old)
         self.assertEqual(before,self.store.path.read_bytes())
+    def recontact_item(self, **confirmation):
+        item=copy.deepcopy(self.item); item['checked_at']=now()
+        item['campaign']['to']='founder@example.invalid'
+        item['duplicate_check']={'message_ids':['new1'],'next_page_token':None}
+        if confirmation: item['recontact']=confirmation
+        return item
+    def recontact_receipt(self, arm):
+        m=message('new2',ACCOUNT,True,self.item['campaign']['body']); m['thread_id']='t2'
+        m['payload']['headers']=[h for h in m['payload']['headers'] if h['name'] not in ('Subject','To')]+[
+            {'name':'Subject','value':'Pilote'},{'name':'To','value':'founder@example.invalid'}]
+        return dict(key=arm['key'],claim=arm['claim'],account=ACCOUNT,message=m)
+    def test_recontact_is_a_confirmed_rule_used_once(self):
+        self.store.outbound_receipt(self.arm_receipt())
+        with self.assertRaises(Blocked): self.store.outbound_arm(self.recontact_item())
+        ok={'confirmed_by':'Jonathan','authorization':'« contourne le blocage pour ces mails »'}
+        arm=self.store.outbound_arm(self.recontact_item(**ok))
+        self.assertEqual(arm['key'],'recontact:1')
+        self.store.outbound_receipt(self.recontact_receipt(arm))
+        s=read(self.store.path)
+        self.assertEqual([x['to'] for x in s['sent']],['prospect@example.invalid','founder@example.invalid'])
+        self.assertEqual((s['sent'][1]['recontact']['previous_sends'],s['records'][0]['Email professionnel']),(['new1'],'founder@example.invalid'))
+        with self.assertRaises(Blocked): self.store.outbound_arm(self.recontact_item(**ok))
+    def test_recontact_keeps_stops_and_unread_mail(self):
+        self.store.outbound_receipt(self.arm_receipt())
+        ok={'confirmed_by':'Jonathan','authorization':'« contourne le blocage »'}
+        unread=self.recontact_item(**ok); unread['duplicate_check']['message_ids']=['new1','reply9']
+        with self.assertRaises(Blocked): self.store.outbound_arm(unread)
+        unread['recontact']=dict(ok,reviewed_message_ids=['reply9']); unread['checked_at']=now()
+        self.assertEqual(self.store.outbound_arm(unread)['key'],'recontact:1')
+        s=read(self.store.path); s['local_runtime']['outbound_intents'].pop('recontact:1')
+        s['sent'][0]['conversation_state']='STOPPED'; atomic(self.store.path,s)
+        with self.assertRaises(Blocked): self.store.outbound_arm(self.recontact_item(**ok))
     def test_preflight_guards(self):
         for key,value in [('profile_email','wrong@example.invalid'),('authorization',''),('checked_at','2020-01-01T00:00:00+00:00'),('duplicate_check',{'message_ids':['old'],'next_page_token':None})]:
             bad=copy.deepcopy(self.item);bad[key]=value
+            with self.assertRaises(Blocked):self.store.outbound_arm(bad)
+        for field in ('subject','body'):
+            bad=copy.deepcopy(self.item);bad['campaign'][field]='Boutique — '+bad['campaign'][field]
             with self.assertRaises(Blocked):self.store.outbound_arm(bad)
         (self.store.local/'STOP').touch()
         with self.assertRaises(Blocked):self.store.outbound_arm(self.item)

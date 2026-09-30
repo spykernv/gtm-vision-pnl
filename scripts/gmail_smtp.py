@@ -38,6 +38,9 @@ CREDENTIAL = LOCAL / 'gmail-runtime' / 'smtp-credential.xml'
 EVIDENCE = LOCAL / 'outbound-smtp'
 TEST_RECIPIENTS = LOCAL / 'gmail-runtime' / 'test-recipients.json'  # Jonathan's own addresses, outside Git
 SMTP_HOST, IMAP_HOST = 'smtp.gmail.com', 'imap.gmail.com'
+FREEMAIL = {'gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.fr', 'outlook.com', 'outlook.fr', 'live.com',
+            'live.fr', 'msn.com', 'yahoo.com', 'yahoo.fr', 'icloud.com', 'me.com', 'orange.fr', 'wanadoo.fr',
+            'free.fr', 'sfr.fr', 'laposte.net', 'bluewin.ch', 'gmx.ch', 'gmx.fr', 'skynet.be', 'telenet.be', 'proton.me'}
 LABELS = {'\\Sent': 'SENT', '\\Inbox': 'INBOX', '\\Important': 'IMPORTANT',
           '\\Starred': 'STARRED', '\\Draft': 'DRAFT', '\\Spam': 'SPAM', '\\Trash': 'TRASH'}
 
@@ -117,22 +120,43 @@ def gmail_ids(imap, uids):
     return ids
 
 
+def summaries(imap, uids, folder):
+    """From, To, Subject and Date of each message found, read without marking it read,
+    so that a confirmed new first message can be preceded by a real review."""
+    out = []
+    for uid in uids:
+        typ, data = imap.uid('FETCH', uid, '(X-GM-MSGID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)])')
+        if typ != 'OK' or not data or not isinstance(data[0], tuple):
+            continue
+        meta, raw = data[0]
+        match = re.search(rb'X-GM-MSGID (\d+)', meta)
+        head = email.message_from_bytes(raw, policy=policy.default)
+        out.append({'id': format(int(match.group(1)), 'x') if match else None, 'folder': folder,
+                    **{k: str(head.get(k, '')) for k in ('from', 'to', 'subject', 'date')}})
+    return out
+
+
 def check(args):
     """Fresh proof of the logged-in account and of the absence of any correspondence."""
     user, secret = credential()
     domain = args.to.split('@', 1)[1].lower()
-    query = '{from:%s to:%s cc:%s bcc:%s}' % (domain, domain, domain, domain)
+    # A shop's own domain is searched whole; a free mailbox domain would match most of the inbox.
+    target = args.to.lower() if domain in FREEMAIL else domain
+    query = '{from:%s to:%s cc:%s bcc:%s}' % (target, target, target, target)
     imap = imap_session(user, secret)
     try:
         boxes = folders(imap)
-        ids = []
+        ids, messages = [], []
         for flag in ('\\All', '\\Junk', '\\Trash'):
             if flag in boxes:
-                ids += gmail_ids(imap, raw_search(imap, boxes[flag], query))
+                uids = raw_search(imap, boxes[flag], query)
+                ids += gmail_ids(imap, uids)
+                messages += summaries(imap, uids, flag)
     finally:
         imap.logout()
     return {'account': user, 'checked_at': now(), 'query': query, 'folders': sorted(boxes),
-            'duplicate_check': {'message_ids': sorted(set(ids)), 'next_page_token': None}}
+            'duplicate_check': {'message_ids': sorted(set(ids)), 'next_page_token': None},
+            'messages': messages}
 
 
 def intent(key, claim):

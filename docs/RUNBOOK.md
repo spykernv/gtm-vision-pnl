@@ -122,6 +122,24 @@ conversation ; révocable dans le compte Google. Pour chaque envoi, un à la foi
 
 Preuves dans `local/outbound-smtp/`. Le canal ne crée aucune autorisation d'envoi.
 
+### Nouveau premier contact (règle de Jonathan du 30/09/2026)
+
+Écrire de nouveau, comme un premier contact, à une entreprise déjà contactée n'est plus un
+blocage mais une règle explicite : `outbound-arm` exige alors un champ `recontact` avec
+`confirmed_by` et `authorization` (la phrase exacte de Jonathan pour ces entreprises).
+Sans lui, l'armement est refusé. Avec lui, le moteur vérifie encore :
+
+- aucune conversation précédente avec l'entreprise n'est sortie de WAITING_REPLY (refus,
+  rebond, reprise humaine, rendez-vous : jamais de nouveau premier contact) ;
+- chaque message trouvé par `check` avec le domaine est l'un de nos envois journalisés,
+  ou figure dans `reviewed_message_ids` après lecture (`check` en donne expéditeur,
+  destinataire, objet et date) ;
+- une seule fois par entreprise (clé `recontact:<rang>`), jamais rejouée.
+
+L'envoi et le reçu suivent ensuite le même canal ; le journal garde les deux envois et la
+confirmation dans `sent[].recontact`. La confirmation vaut pour les entreprises nommées,
+pas pour une vague future.
+
 ## Réponse écrite à la main
 
 Jonathan rédige lui-même les réponses. L'opérateur ne les envoie pas ; il en prend acte.

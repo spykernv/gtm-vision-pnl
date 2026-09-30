@@ -62,6 +62,12 @@ Nomenclature demandée le 28/09/2026 : toujours écrire « Vision P&L », y comp
 dans les objets, le logo et la signature, sans point décoratif après P&L. Écrire
 « 8 à 12 semaines ». Les chemins, URLs et preuves historiques gardent leur identité.
 
+Règle de Jonathan du 30/09/2026 : jamais de tiret long « — » dans un mail, ni dans
+l'objet, ni dans le texte, ni dans une réponse proposée. Écrire une virgule, un
+deux-points ou une nouvelle phrase. `render_email.py` et `gtm.py` (armement d'un envoi
+initial, préparation d'une réponse) refusent un mail qui en contient. Objet par défaut :
+« Marque : marge et coûts logistiques | Vision P&L ».
+
 Demande du 28/09/2026 : réutiliser le template HTML `examples/email-editorial-v1.html`
 pour les nouveaux mails GTM. Lire `docs/EMAIL_TEMPLATE.md` avant préparation : palette,
 champs personnalisables, génération et correspondance exacte avec le protocole Gmail.
@@ -70,9 +76,10 @@ Le template ne donne aucune autorisation d'envoi supplémentaire.
 Le bouton de prise de rendez-vous mène au Calendly sélectionné et vérifié. Aligner
 la durée proposée dans le texte sur sa durée réelle. Numéro de téléphone en Arial,
 avec chiffres alignés ; ne pas lui appliquer Georgia.
-Rôle ajouté sur demande de Jonathan le 28/09/2026 : afficher « CEO vision P&L »
-dans la signature, à la place de l'ancienne ligne de marque seule. Le nom et le
-numéro conservent leur texte exact ; le rôle est une ligne complémentaire.
+Rôle ajouté sur demande de Jonathan le 28/09/2026, casse corrigée le 30/09/2026 :
+afficher « CEO Vision P&L » (V majuscule) dans la signature, à la place de l'ancienne
+ligne de marque seule. Le nom et le numéro conservent leur texte exact ; le rôle est
+une ligne complémentaire.
 
 Choix validé le 28/09/2026 : la version restaurant avec le P.-S. approuvé est le
 modèle par défaut pour les nouveaux mails GTM. Le générateur charge automatiquement

@@ -32,6 +32,7 @@ RECORD_COLUMNS = ('Rang', 'Sélection', 'Entreprise', 'Pays', 'Shopify', 'Logist
 DECISION_COLUMNS = ('Décideur', 'Email décideur', 'Décideur : provenance',
                     'Téléphone', 'Téléphone : provenance')
 SCAN_HISTORY_LIMIT = 24
+EM_DASH = '—'  # Jonathan's writing rule of 30/09/2026: never in a subject or body we write
 
 def next_scan_id(runtime):
     return 'scan-v2-' + str(runtime.get('scan_sequence', 0) + 1)
@@ -283,6 +284,8 @@ class Store:
                 raise Blocked('Another event already owns this thread')
             if state['signature'] not in item['body']:
                 raise Blocked('Required signature missing')
+            if EM_DASH in item['body'] or EM_DASH in item.get('subject', ''):
+                raise Blocked('Em dash forbidden in emails (Jonathan, 30/09/2026)')
             if not e.get('inbound_rfc_id'):
                 raise Blocked('Inbound RFC Message-ID required for reply proof')
             # Reply destination cannot be supplied/changed by email instructions.
@@ -395,32 +398,63 @@ class Store:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(item['checked_at'])).total_seconds()
             if not 0 <= age <= 60:
                 raise Blocked('Fresh profile and duplicate check required')
-            if item.get('duplicate_check') != {'message_ids': [], 'next_page_token': None}:
-                raise Blocked('Existing correspondence requires review before initial outreach')
             campaign = deepcopy(item['campaign'])
             rank, recipient = campaign['rank'], campaign['to']
             if addresses(recipient) != {recipient.lower()} or any(c in recipient for c in '\r\n,;<> '):
                 raise Blocked('One exact recipient required')
             if '\n' in campaign['subject'] or '\r' in campaign['subject'] or not campaign['subject']:
                 raise Blocked('Invalid subject')
+            if EM_DASH in campaign['subject'] or EM_DASH in campaign['body']:
+                raise Blocked('Em dash forbidden in emails (Jonathan, 30/09/2026)')
             if state['signature'] not in campaign['body'] or not campaign.get('source') or not campaign.get('proof'):
                 raise Blocked('Signature and sourced contact/personalization required')
             rows = [r for r in state['records'] if r['Rang'] == rank and r['Entreprise'] == campaign['company']]
-            if len(rows) != 1 or rows[0].get('Statut') in {'Envoyé', 'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}:
-                raise Blocked('Candidate missing, already sent or suspended')
-            if any(s.get('rank') == rank or s.get('company') == campaign['company'] or s['to'].lower() == recipient.lower() for s in state['sent']):
-                raise Blocked('Initial outreach already journaled')
+            if len(rows) != 1 or rows[0].get('Statut') in {'STOPPED', 'BOUNCED', 'HANDOFF', 'BOOKED'}:
+                raise Blocked('Candidate missing or suspended')
+            prior = [s for s in state['sent']
+                     if s.get('rank') == rank or s.get('company') == campaign['company'] or s['to'].lower() == recipient.lower()]
             intents = rt.setdefault('outbound_intents', {})
             if any(e['phase'] == 'SENDING' for e in intents.values()) or any(e['phase'] in {'CLAIMED', 'SENDING'} for e in rt['events'].values()):
                 raise Blocked('Resolve existing send ownership first')
-            key = 'outbound:' + str(rank)
-            if key in intents or any(e['campaign']['to'].lower() == recipient.lower() for e in intents.values()):
-                raise Blocked('Intent already exists; never blindly retry')
+            if prior or rows[0].get('Statut') == 'Envoyé':
+                recontact = self.recontact_rule(item, prior)
+                key = 'recontact:' + str(rank)
+                if key in intents:
+                    raise Blocked('This company was already recontacted once; never twice')
+            else:
+                recontact = None
+                if item.get('duplicate_check') != {'message_ids': [], 'next_page_token': None}:
+                    raise Blocked('Existing correspondence requires review before initial outreach')
+                key = 'outbound:' + str(rank)
+                if key in intents or any(e['campaign']['to'].lower() == recipient.lower() for e in intents.values()):
+                    raise Blocked('Intent already exists; never blindly retry')
             claim = uuid.uuid4().hex
             intents[key] = {'phase': 'SENDING', 'claim': claim, 'account': state['preferred_sender'],
                             'armed_at': now(), 'campaign': campaign, 'authorization': item['authorization'],
                             'duplicate_check': deepcopy(item['duplicate_check']), 'checked_at': item['checked_at']}
+            if recontact:
+                intents[key]['recontact'] = recontact
             return {'key': key, 'claim': claim, 'to': recipient, 'subject': campaign['subject'], 'body': campaign['body']}
+
+    @staticmethod
+    def recontact_rule(item, prior):
+        """A new first message to a company already written to is an explicit rule, not a wall:
+        it needs Jonathan's own confirmation, quoted, for this company. It never reopens a stopped,
+        bounced, handed-off or booked conversation, and every message found with the recipient's
+        domain must be one of our journaled sends or a message the operator reviewed as no reply."""
+        confirmation = item.get('recontact') or {}
+        if not confirmation.get('confirmed_by') or not str(confirmation.get('authorization', '')).strip():
+            raise Blocked('Company already contacted: a new first message needs Jonathan\'s explicit recontact confirmation')
+        open_states = [s for s in prior if s.get('conversation_state') != 'WAITING_REPLY']
+        if open_states:
+            raise Blocked('A previous conversation with this company is not waiting for a reply')
+        ours = {s['result']['id'] for s in prior if s.get('result', {}).get('id')}
+        reviewed = set(confirmation.get('reviewed_message_ids') or [])
+        found = set((item.get('duplicate_check') or {}).get('message_ids') or [])
+        if (item.get('duplicate_check') or {}).get('next_page_token') is not None or found - ours - reviewed:
+            raise Blocked('Unreviewed correspondence with this domain: read it before a new first message')
+        return {'confirmed_by': confirmation['confirmed_by'], 'authorization': confirmation['authorization'],
+                'previous_sends': sorted(ours), 'reviewed_message_ids': sorted(reviewed), 'confirmed_at': now()}
 
     def apply_outbound_receipt(self, state, item):
         e = state['local_runtime'].get('outbound_intents', {}).get(item['key'])
@@ -444,13 +478,17 @@ class Store:
             if e['sent_id'] != m['id']:
                 raise Blocked('Conflicting initial receipt')
             return
-        if any(s['result']['id'] == m['id'] or s['result']['thread_id'] == m['thread_id'] or s.get('rank') == c['rank'] for s in state['sent']):
+        recontact = e.get('recontact')  # a confirmed new first message may share the company's rank
+        if any(s['result']['id'] == m['id'] or s['result']['thread_id'] == m['thread_id'] or
+               (s.get('rank') == c['rank'] and not recontact) for s in state['sent']):
             raise Blocked('Duplicate initial sent evidence')
         record = next(r for r in state['records'] if r['Rang'] == c['rank'])
         sent = deepcopy(c)
         sent.update(result=deepcopy(m), status='SENT', actual_from=item['account'],
                     sent_date=datetime.fromtimestamp(int(m['internal_date']) / 1000, timezone.utc).date().isoformat(),
                     conversation_state='WAITING_REPLY', delivery_status='not_checked', auto_reply_count=0)
+        if recontact:
+            sent['recontact'] = deepcopy(recontact)
         state['sent'].append(sent)
         record.update({'Statut': 'Envoyé', 'Email professionnel': c['to'], 'Contact public': c['name'],
                        'Email : provenance': c['source'], 'Vague': c['wave']})

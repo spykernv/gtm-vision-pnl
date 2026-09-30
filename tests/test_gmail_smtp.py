@@ -29,7 +29,7 @@ def payload(html=HTML, image=IMAGE, cid=CID):
 class GmailSmtpTests(unittest.TestCase):
     def intent(self):
         return {'account': 'owner@example.invalid',
-                'campaign': {'to': 'lead@example.invalid', 'subject': 'Boutique — marge | Vision P&L', 'body': HTML}}
+                'campaign': {'to': 'lead@example.invalid', 'subject': 'Boutique : marge | Vision P&L', 'body': HTML}}
 
     def test_exact_html_and_inline_photo_survive_the_wire(self):
         msg = gmail_smtp.build(self.intent(), payload(), 'owner@example.invalid')
@@ -37,7 +37,7 @@ class GmailSmtpTests(unittest.TestCase):
         engine = gmail_smtp.engine_part(parsed)
         h = headers({'payload': engine})
         self.assertEqual(body_text(engine).strip(), HTML.strip())
-        self.assertEqual(h['subject'], 'Boutique — marge | Vision P&L')
+        self.assertEqual(h['subject'], 'Boutique : marge | Vision P&L')
         self.assertEqual(addresses(h['from']), {'owner@example.invalid'})
         self.assertEqual(addresses(h['to']), {'lead@example.invalid'})
         self.assertFalse(h.get('cc') or h.get('bcc') or h.get('in-reply-to'))
