@@ -25,9 +25,12 @@ RECORD_COLUMNS = ('Rang', 'Sélection', 'Entreprise', 'Pays', 'Shopify', 'Logist
                   'Preuve 3PL', 'Statut', 'Angle à tester', 'À vérifier', 'Contact public',
                   'Email professionnel', 'Profil du contact', 'Source logistique / origine',
                   'Site / preuve Shopify', 'Signal Shopify observé', 'Email : provenance', 'Vague',
-                  'Décideur', 'Email décideur', 'Décideur : provenance')
-# The only columns an already-contacted row may gain: who decides, never where we wrote.
-DECISION_COLUMNS = ('Décideur', 'Email décideur', 'Décideur : provenance')
+                  'Décideur', 'Email décideur', 'Décideur : provenance',
+                  'Téléphone', 'Téléphone : provenance')
+# The only columns an already-contacted row may gain: who decides and a published phone,
+# never where we wrote.
+DECISION_COLUMNS = ('Décideur', 'Email décideur', 'Décideur : provenance',
+                    'Téléphone', 'Téléphone : provenance')
 SCAN_HISTORY_LIMIT = 24
 
 def next_scan_id(runtime):

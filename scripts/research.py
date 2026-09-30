@@ -437,8 +437,16 @@ PROOF = {
 }
 
 
+def phone_fields(entry, day):
+    """A published phone and where it was read; empty when the entry has none."""
+    if not entry.get('phone'):
+        return {}
+    return {'Téléphone': entry['phone'], 'Téléphone : provenance': f"{entry['phone_source']} • {day}"}
+
+
 def draft_updates(decisions, journal, authorization, outdir, verify_files=None, day=None):
-    """decisions: [{"rank", "person", "email"?, "proof": smtp|published|fallback|none, "source", "checks"?}]"""
+    """decisions: [{"rank", "person", "email"?, "proof": smtp|published|fallback|none, "source", "checks"?,
+    "phone"?, "phone_source"?}]"""
     day = day or date.today().strftime('%d/%m/%Y')
     records = {r['Rang']: r for r in journal['records']}
     checked = verified_addresses(verify_files)
@@ -463,6 +471,7 @@ def draft_updates(decisions, journal, authorization, outdir, verify_files=None, 
                 previous = r.get('À vérifier') or ''
                 fields['À vérifier'] = d['checks'] if d['checks'] in previous else f"{d['checks']} ; {previous}".strip(' ;')
             name = f"nc-{r['Rang']:03d}.json"
+        fields.update(phone_fields(d, day))
         item = {'authorization': authorization, 'rank': r['Rang'], 'company': r['Entreprise'], 'fields': fields,
                 'evidence': {'method': 'docs/RESEARCH.md', 'sources': d['source'], 'proof': proof, 'checked_at': day}}
         (Path(outdir) / name).write_text(json.dumps(item, ensure_ascii=False, indent=1), encoding='utf-8')
@@ -472,7 +481,7 @@ def draft_updates(decisions, journal, authorization, outdir, verify_files=None, 
 
 def draft_additions(prospects, journal, authorization, outdir, day=None):
     """prospects: [{"company", "country", "site", "shop", "logistician", "proof3pl", "source",
-    "contact"?, "email"?, "profile"?, "provenance", "angle", "checks"}]"""
+    "contact"?, "email"?, "profile"?, "provenance", "angle", "checks", "phone"?, "phone_source"?}]"""
     day = day or date.today().strftime('%d/%m/%Y')
     taken = {r['Entreprise'].strip().lower() for r in journal['records']}
     rank = max(r['Rang'] for r in journal['records'])
@@ -490,7 +499,7 @@ def draft_additions(prospects, journal, authorization, outdir, day=None):
                   'Email professionnel': p.get('email'), 'Profil du contact': p.get('profile'),
                   'Source logistique / origine': p.get('source') or p['site'], 'Site / preuve Shopify': p['site'],
                   'Signal Shopify observé': f'Shopify.shop = "{p["shop"]}" ({day})',
-                  'Email : provenance': f"{p['provenance']} • {day}"}
+                  'Email : provenance': f"{p['provenance']} • {day}", **phone_fields(p, day)}
         item = {'authorization': authorization, 'record': record,
                 'evidence': {'origin': p.get('source') or 'sélection manuelle', 'shopify_signal': p['shop'],
                              'method': 'docs/RESEARCH.md', 'checked_at': day}}
@@ -563,6 +572,74 @@ def probe(candidates_list):
     return out
 
 
+# ---------- phones ----------
+
+PHONE = re.compile(r'(?<![\w+])(?:\+|(?<!\.)00)(?:33|32|41)[\s.\-]?\(?0?\)?[\s.\-]?[1-9](?:[\s.\-]?\d){7,8}(?![\d.]\d)'
+                   r'|(?<![\w+.])0[1-9](?:[\s.\-]?\d{2}){4}(?![\d.]\d)'
+                   r'|(?<![\w+.])0\d{1,3}[\s./\-]\d{2,3}[\s./\-]?\d{2}[\s./\-]?\d{2}(?![\d.]\d)')
+NOT_OURS = re.compile(r'h[ée]berg|shopify|m[ée]diat|cnil|dgccrf|fevad|signal conso|opposition|bloctel', re.I)
+# Company numbers look like phones: BCE 0123.456.789, TVA BE0123456789, SIREN, IDE CHE-…
+LEGAL_ID = re.compile(r'(bce|kbo|btw|tva|vat|ondernemings|entreprise|rpm|rpr|ide|uid|che|siren|siret|rcs|registre)\W{0,25}$', re.I)
+PHONE_PAGES = ('/policies/contact-information', '/pages/contact', '/pages/nous-contacter', '/pages/contact-us',
+               '/policies/legal-notice', '/pages/mentions-legales', '/pages/impressum', '/')
+
+
+def phone_display(raw, country):
+    """+33 1 23 45 67 89 style, from a national or international number."""
+    digits = re.sub(r'\D', '', raw)
+    if digits.startswith('00'):
+        digits = digits[2:]
+    code = {'FR': '33', 'BE': '32', 'CH': '41'}.get(country, '33')
+    for prefix in ('33', '32', '41'):
+        if raw.strip().startswith(('+', '00')) and digits.startswith(prefix):
+            code, digits = prefix, digits[len(prefix):]
+            break
+    digits = digits.lstrip('0')
+    if code == '33' and len(digits) == 9:
+        return f"+33 {digits[0]} " + ' '.join(digits[i:i + 2] for i in range(1, 9, 2))
+    if len(digits) == 9:  # Swiss numbers and Belgian mobiles: 44 123 45 67, 470 12 34 56
+        head = 3 if code == '32' else 2
+        return f"+{code} {digits[:head]} {digits[head:head + 3 - (head == 3)]} " + \
+            ' '.join(digits[i:i + 2] for i in range(head + 3 - (head == 3), 9, 2))
+    if len(digits) == 8 and digits[0] in '2349':  # Belgian landlines, one-digit area: 9 123 45 67
+        return f"+{code} {digits[0]} {digits[1:4]} {digits[4:6]} {digits[6:]}"
+    if len(digits) == 8:  # two-digit area: 14 12 34 56
+        return f"+{code} " + ' '.join(digits[i:i + 2] for i in range(0, 8, 2))
+    return f"+{code} {digits}"
+
+
+def phone_of(site, country=None, pause=2.0):
+    """The shop's own published number: tel: links first, then numbers on contact and legal pages.
+    Hosting, mediator and marketplace numbers are skipped."""
+    base = re.match(r'https?://[^/]+', site).group(0)
+    found = []
+    for path in PHONE_PAGES:
+        final, page = get(base + path)
+        time.sleep(pause)
+        if not page:
+            continue
+        for m in re.finditer(r'href="tel:([^"]+)"', page):
+            tel = urllib.parse.unquote(m.group(1)).strip()
+            ours = PHONE.search(tel) and len(re.sub(r'\D', '', tel)) >= 9
+            if ours and not NOT_OURS.search(text_of(page[max(0, m.start() - 600):m.start()])[-160:]):
+                found.append((0, tel, final))  # a foreign or hosting number (Shopify's Ottawa line) is not the shop's
+        text = text_of(re.sub(r'<svg.*?</svg>', ' ', page, flags=re.S | re.I))  # icon paths are digits too
+        for m in PHONE.finditer(text):
+            if len(re.sub(r'\D', '', m.group(0))) < 9:  # a date such as 02.02.2021, not a number
+                continue
+            if re.fullmatch(r'0\d{3}\.\d{3}\.\d{3}', m.group(0)) or LEGAL_ID.search(text[max(0, m.start() - 40):m.start()]):
+                continue
+            if not NOT_OURS.search(text[max(0, m.start() - 160):m.start()]):
+                found.append((1 if path != '/' else 2, m.group(0), final))
+        if found and found[0][0] == 0:
+            break
+    if not found:
+        return None
+    rank, raw, url = sorted(found, key=lambda f: f[0])[0]
+    return {'phone': phone_display(raw, country), 'source': url.split('?')[0],
+            'all': sorted({phone_display(r, country) for _, r, _ in found})}
+
+
 # ---------- cli ----------
 
 def main():
@@ -577,6 +654,8 @@ def main():
     p = sub.add_parser('verify'); p.add_argument('candidates'); p.add_argument('out')
     p = sub.add_parser('reviews'); p.add_argument('app'); p.add_argument('out'); p.add_argument('--pages', type=int, default=20)
     p = sub.add_parser('probe'); p.add_argument('candidates'); p.add_argument('out')
+    p = sub.add_parser('phones'); p.add_argument('shops', help='[{"company", "site" or "url", "country"?}]')
+    p.add_argument('out')
     for name in ('draft-updates', 'draft-additions'):
         p = sub.add_parser(name); p.add_argument('decisions'); p.add_argument('outdir')
         p.add_argument('--authorization', required=True, help='the instruction quoted from the chat')
@@ -608,6 +687,13 @@ def main():
         reg = json.loads(Path(args.registry).read_text(encoding='utf-8'))
         result = [summary_line(c, reg.get(str(c['rank'])) or {}) for c in crawled]
         print('\n'.join(result))
+    elif args.cmd == 'phones':
+        shops = json.loads(Path(args.shops).read_text(encoding='utf-8'))
+        with cf.ThreadPoolExecutor(2) as pool:  # Shopify answers 429 when shops are read too fast
+            found = list(pool.map(lambda s: phone_of(s.get('site') or s['url'], s.get('country')), shops))
+        result = {s['company']: f for s, f in zip(shops, found)}
+        for company, f in result.items():
+            print(f"{company} | {f['phone'] + ' | ' + f['source'] if f else '—'}")
     elif args.cmd == 'reviews':
         result = app_reviews(args.app, args.pages)
         print(f"{args.app}: {result['reviews']} avis, {len(result['merchants'])} FR/CH/BE")

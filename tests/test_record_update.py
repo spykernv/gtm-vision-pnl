@@ -31,6 +31,10 @@ class RecordUpdateTests(unittest.TestCase):
         self.store.record_update(dict(self.item,rank=1,company='Example',fields=dm))
         row=next(x for x in read(self.store.path)['records'] if x['Rang']==1)
         self.assertEqual((row['Décideur'],row['Statut']),('John Boss — CEO','Envoyé'))
+        phone={'Téléphone':'+33 1 00 00 00 00','Téléphone : provenance':'https://example.invalid/contact'}
+        self.store.record_update(dict(self.item,rank=1,company='Example',fields=phone))
+        row=next(x for x in read(self.store.path)['records'] if x['Rang']==1)
+        self.assertEqual((row['Téléphone'],row['Statut']),('+33 1 00 00 00 00','Envoyé'))
         for fields in ({'Email professionnel':'other@example.invalid'},{'Contact public':'John'},
                        {'Email décideur':'prospect@example.invalid'}):
             with self.assertRaises(Blocked): self.store.record_update(dict(self.item,rank=1,company='Example',fields=fields))

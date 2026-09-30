@@ -105,6 +105,11 @@ boutique gardée faute de mieux) ou `none`. `checks` ne sert qu'aux fiches jamai
 contactées : effectif, CA, alertes (« À écarter : … » retire la fiche des prochaines cibles).
 Sur une fiche déjà contactée, seul le décideur est ajouté ; l'adresse de l'envoi ne bouge pas.
 
+Téléphone (toujours, demande du 30/09/2026) : `python -X utf8 scripts/research.py phones
+$D/shops.json $D/phones.json` sur `[{"company", "site", "country"}]`, puis ajouter à chaque
+décision ou prospect `"phone"` et `"phone_source"` (URL de la page lue). Seul un numéro
+publié par la boutique, ou par la personne pour son activité, est retenu (docs/RESEARCH.md).
+
 ```bash
 python -X utf8 scripts/research.py draft-updates $D/decisions.json $D/updates --authorization "« instruction exacte de Jonathan »" --verify $D/verify.json
 python -X utf8 scripts/research.py simulate $D/updates

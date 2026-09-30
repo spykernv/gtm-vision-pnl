@@ -24,6 +24,12 @@ jamais l'outil Workflow.
 4. Un résumé de moteur de recherche n'est pas une source : relire la page citée avant
    de retenir une adresse. Écarter une adresse sur un domaine étranger à la marque, sauf
    si le registre montre que ce domaine appartient à la société qui exploite la boutique.
+5. Téléphone (demande du 30/09/2026) : chaque prospect reçoit, si elle existe, la ligne
+   publiée par la boutique elle-même (lien `tel:`, page contact, mentions légales,
+   Impressum), avec l'URL en provenance (colonnes `Téléphone` et `Téléphone : provenance`).
+   `research.py phones` écarte les numéros d'hébergeur, de médiateur ou de place de marché.
+   Pas de numéro tiré d'un annuaire ou d'un agrégateur ; un numéro personnel n'est retenu
+   que si la personne l'a publié pour son activité. Aucun numéro publié : colonne vide.
 
 ## Outils (`scripts/research.py`)
 
@@ -40,6 +46,7 @@ sous-commande imprime une vue compacte ; c'est elle qu'on lit, pas le JSON.
 | `verify CANDIDATES OUT` | vérification SMTP sans envoi |
 | `reviews APP OUT [--pages N]` | marchands FR/CH/BE ayant noté une application Shopify |
 | `probe CANDIDATES OUT` | signal Shopify, devise et titre de domaines candidats |
+| `phones SHOPS OUT` | téléphone publié par chaque boutique et page source (lent : limite 429 de Shopify) |
 | `draft-updates DECISIONS DIR --authorization … [--verify F…]` | entrées `record-update` |
 | `draft-additions PROSPECTS DIR --authorization …` | entrées `record-add` |
 | `simulate DIR` | rejoue les entrées sur une copie du journal |
